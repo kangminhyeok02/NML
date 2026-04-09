@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd C:/Users/rkdal/NML_clone && python -m py_compile executors/ml/automl_executor.py && echo \\\"automl OK\\\" && python -m py_compile executors/ml/stg_executor.py && echo \\\"stg OK\\\" && python ...",
+  "error": "Exit code 1\nautoml OK\nstg OK\nprocess OK\ndata_analysis OK\n  File \"executors/ml/export_executor.py\", line 804\r\n    f'\"{k}\", new String[]{{{\", \".join(f\\'\"{v}\"\\' for v in vals)}}}'\r\n                                        ^\r\nSyntaxError: unexpected character after line continuation character",
+  "timestamp": "2026-04-08T21:29:46.752Z",
+  "retry_count": 1
+}

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(python:*)",
+      "Bash(ls /c/Users/rkdal/NML_clone/executors/ml/*.py)",
+      "Bash(git:*)"
+    ]
+  }
+}

@@ -1,0 +1,1238 @@
+================================================================================
+  NML (N-Strategy ML) - 각 Python 파일 역할 상세 설명서
+  작성일: 2026-04-09
+================================================================================
+
+이 문서는 NML 플랫폼을 구성하는 각 executor Python 파일의 역할을
+함수 목록을 기반으로 구체적으로 정리한 설명서입니다.
+
+================================================================================
+전체 아키텍처 흐름
+================================================================================
+
+  [데이터 입수]       → mart_executor.py
+  [EDA/전처리]        → data_analysis_executor.py
+  [프로세스 관리]     → process_executor.py
+  [모델 학습]         → python_model_executor.py
+                        python_h2o_model_executor.py
+                        h2o_model_executor.py
+                        automl_executor.py
+                        scorecard_executor.py
+                        rulesearch_executor.py
+                        rl_executor.py
+  [예측 실행]         → predict_executor.py
+  [사전학습 모델]     → pretrained_executor.py
+  [모델 배포/변환]    → export_executor.py
+  [노드 상태 관리]    → stg_executor.py
+
+================================================================================
+1. process_executor.py — 분석 프로세스(워크플로우) 관리
+================================================================================
+
+[ 한 줄 요약 ]
+분석 파이프라인(프로세스) 자체의 생성·수정·삭제·조회와
+사용자 권한 관리를 담당하는 프로세스 CRUD 관리자.
+
+[ 역할 상세 ]
+NML 플랫폼에서 "프로세스"란 여러 분석 노드(데이터 전처리, 모델 학습,
+예측 등)를 연결한 하나의 분석 워크플로우를 의미합니다.
+이 파일은 그 워크플로우 자체를 관리합니다.
+
+[ 주요 함수 설명 ]
+
+  _check_process_name_already_exists(company_db_info, prcs_name)
+    - 동일한 이름의 프로세스가 이미 존재하는지 DB에서 사전 체크
+    - 중복 생성 방지를 위한 내부 유효성 검사 함수
+
+  get_process_list()
+    - 전체 프로세스 목록 조회
+    - 사용자가 접근 가능한 프로세스 리스트를 반환
+
+  get_export_process_list()
+    - 외부 배포 가능한 프로세스 목록만 별도 조회
+
+  create_process(service_db_info, root_dir, json_obj)
+    - 새 프로세스 생성
+    - 메타 정보 DB 등록 + 파일 디렉토리 구조 생성
+
+  modify_process(service_db_info, json_obj)
+    - 기존 프로세스 정보(이름, 설명 등) 수정
+
+  apply_process(service_db_info, file_server_host, file_server_port, json_obj)
+    - 프로세스를 파일서버로 복사하여 배포(적용)
+    - 개발 환경에서 운영 환경으로 프로세스를 전달하는 역할
+
+  delete_process()
+    - 프로세스 삭제 (DB 레코드 + 연관 파일 제거)
+
+  save_process(service_db_info, meta_json, process_bytes)
+    - 프로세스를 직렬화(Bytes)하여 저장
+    - 프로세스 스냅샷 보관용
+
+  get_process_obj(service_db_info, auth_key, process_seq)
+    - 저장된 프로세스 객체를 불러와 역직렬화하여 반환
+
+  get_process_history_meta(service_db_info, auth_key, process_seq)
+    - 프로세스 변경 이력의 메타 정보 조회
+
+  get_process_history_obj(service_db_info, auth_key, process_seq, reg_dtm)
+    - 특정 시점의 프로세스 이력 객체 조회 (타임스탬프 기반)
+
+  get_system_auth_id(service_db_info, auth_key, id_gb_cd)
+    - 시스템 인증 ID 조회 (배치/API 연동용 시스템 계정 관리)
+
+  insert_system_auth_id(service_db_info, json_obj)
+    - 시스템 인증 ID 신규 등록
+
+  delete_system_auth_id(service_db_info, auth_key, id_gb_cd, user_name)
+    - 시스템 인증 ID 삭제
+
+  create_user_auth(service_db_info, json_obj)
+    - 특정 사용자에게 프로세스 접근 권한 부여
+
+  get_user_authorities(service_db_info, auth_key, prcs_seq, user_ids=[])
+    - 해당 프로세스에 대한 전체 사용자 권한 목록 조회
+
+  overwrite_template(service_db_info, root_dir, json_obj)
+    - 기존 프로세스 템플릿을 새 내용으로 덮어쓰기
+
+
+================================================================================
+2. data_analysis_executor.py — 데이터 탐색·전처리·통계 분석
+================================================================================
+
+[ 한 줄 요약 ]
+모델 학습 전 데이터를 탐색·샘플링·병합하고
+통계적 프로파일링을 수행하는 EDA 실행기.
+
+[ 역할 상세 ]
+머신러닝 모델 학습 이전 단계에서 데이터의 품질 확인, 분포 파악,
+변수 특성 분석 등을 수행합니다. 대용량 데이터 처리를 위해
+멀티프로세싱(ProcessPoolExecutor)을 사용합니다.
+
+[ 주요 함수 설명 ]
+
+  _variable_analysis_for_each_feature()
+    - 단일 변수에 대한 통계 분석을 수행하는 내부 함수
+    - concurrent.futures.ProcessPoolExecutor로 병렬 호출됨
+
+  variable_analysis()
+    - 전체 변수에 대한 병렬 통계 분석 실행
+    - 각 변수의 분포, 결측률, 고유값 수, 왜도/첨도 등 산출
+    - 기존 multiprocessing → ProcessPoolExecutor로 개선됨
+
+  data_sampling()
+    - 학습/검증 분리를 위한 데이터 샘플링 수행
+    - process_seq & stg_id로 출력 파라미터 파일 경로를 결정
+
+  data_union(service_db_info, file_server_host, file_server_port, json_obj)
+    - 여러 데이터셋(마트)를 수평/수직으로 병합
+    - 마트 조인 시 정렬 순서 보장 (정렬 없으면 잘못된 결과 발생 주의)
+
+  check_output_param_prob_in_correct_range()
+    - 예측 확률값이 [0, 1] 범위 내에 있는지 검증
+    - 이진분류 확률 출력값 무결성 체크
+
+  get_distinct_values()
+    - 특정 변수의 고유값(Unique Value) 목록 반환
+    - 범주형 변수 도메인 확인용
+
+  get_profiling_result()
+    - 저장된 프로파일링 결과 조회
+
+  delete_profiling_result()
+    - 프로파일링 결과 삭제
+
+  variable_profiling_from_node()
+    - 데이터 노드 기준으로 변수 프로파일링 수행
+    - 프로파일링 결과를 JSON으로 파일서버에 업로드
+    - 마트 업로드 액션 제외, 프로파일링 노드에서만 호출됨
+
+  data_snapshot()
+    - 현재 데이터 상태를 스냅샷으로 저장
+    - 재현성 확보 및 이력 관리용
+
+
+================================================================================
+3. mart_executor.py — 데이터 마트(데이터셋) 통합 관리
+================================================================================
+
+[ 한 줄 요약 ]
+플랫폼에서 사용하는 모든 데이터셋(마트)의 업로드·조회·
+변수 관리·통계 산출·권한 제어를 담당하는 핵심 데이터 레이어.
+
+[ 역할 상세 ]
+NML 플랫폼의 모든 분석은 "마트"라는 데이터셋 단위로 이루어집니다.
+이 파일은 마트의 전체 생명주기(업로드 → 정제 → 통계 → 변수 생성 → 삭제)를
+관리하며, 가장 많은 함수를 보유한 핵심 모듈입니다.
+
+[ 주요 함수 설명 ]
+
+  --- 마트 업로드 ---
+  upload_mart()
+    - CSV/Parquet 파일을 플랫폼 파일서버에 업로드
+    - fire and forget 처리는 app server.py에서 담당
+
+  upload_mart_to_db()
+    - 마트를 Windows 버전 ML용 DB에 직접 업로드
+
+  process_uploaded_mart()
+    - 업로드된 마트 데이터를 정제 (CSV 업로드 모드 지원)
+
+  process_uploaded_mart_with_variable_json()
+    - Parquet 업로드 시 변수 JSON에 정의된 데이터 타입을 직접 반영
+
+  process_uploaded_mart_to_db()
+    - Windows 로컬 플랫폼용: predefined schema(uint32, string) 적용
+
+  calculate_statistics_uploaded_mart()
+    - 업로드된 마트의 통계값 계산
+    - 프로파일링 결과를 JSON으로 저장 및 파일명 업데이트
+
+  --- 마트 메타·레이아웃 ---
+  add_mart_meta()
+    - 마트 메타데이터 등록 (변수 정보, 이진 변수 타입 처리)
+    - 도메인명 길이 예외 메시지 추가
+
+  get_mart_domain(service_db_info, auth_key, mart_name, add_whole_domain)
+    - 마트의 도메인(변수 그룹) 정보 조회
+
+  get_mart_layout(service_db_info, auth_key, mart_name)
+    - 마트 변수 레이아웃(컬럼 구조) 조회
+
+  get_mart_layout_featuretools(service_db_info, auth_key, mart_name)
+    - Feature Tools용 레이아웃 조회
+
+  get_mart_layout_for_excel(service_db_info, auth_key, mart_name)
+    - Excel 내보내기용 레이아웃 조회
+
+  save_mart_layout(service_db_info, json_obj)
+    - SVD 값 포함 마트 레이아웃 저장
+
+  get_mart_var_info(service_db_info, auth_key, mart_name, return_all_columns=False)
+    - 마트 변수 상세 정보 조회
+
+  --- 마트 병합·조작 ---
+  mart_concat_vertical()
+    - 대용량 마트 수직 병합 (chunk 단위 Parquet 읽기)
+    - pandas/pyarrow 버전 업 후 chunk size 적용 예정
+
+  --- 파생변수 관리 ---
+  create_user_variable()
+    - 기존 변수로부터 파생변수 생성
+
+  create_user_variable_encryption_test(service_db_info, json_obj)
+    - 암호화 테스트용 파생변수 생성
+
+  delete_user_variable()
+    - 파생변수 삭제 (리스트 단위 삭제, fire and forget)
+
+  replace_user_variable()
+    - 기존 파생변수를 새 값으로 교체
+
+  create_variable_from_other_mart()
+    - 다른 마트의 변수를 현재 마트에 추가
+
+  get_user_variable(service_db_info, auth_key, mart_name)
+    - 해당 마트의 파생변수 목록 조회
+
+  get_user_variable_operator(service_db_info, auth_key)
+    - 파생변수 생성에 사용 가능한 연산자 목록 조회
+
+  --- SVD (특이값 분해) ---
+  get_svd_values(service_db_info, auth_key, mart_name)
+    - 마트 전체 SVD 결과 조회
+
+  get_variable_svd_values(service_db_info, auth_key, mart_name, var_name)
+    - 특정 변수의 SVD 결과 조회
+
+  save_svd()
+    - SVD 분해 결과 저장
+
+  --- 통계·검증 ---
+  get_min_max_count_scale()
+    - 변수별 min/max/count/scale 통계 조회 (도메인 무결성 체크 포함)
+
+  validate_data(service_db_info, auth_key, mart_name)
+    - 마트 데이터 유효성 전체 검증
+
+  mono_bin(X, n=20)
+    - IV(Information Value) 계산을 위한 단조 구간화
+
+  data_vars(df1, target)
+    - 타겟 대비 각 변수의 데이터 특성 분석
+
+  --- 권한 ---
+  get_auth_level(db_info, user_id)
+    - 사용자 권한 레벨 조회
+
+  create_user_auth(service_db_info, json_obj)
+    - 마트에 대한 사용자 접근 권한 등록
+
+  get_user_authorities(service_db_info, auth_key, table_id, user_ids=[])
+    - 마트의 전체 사용자 권한 목록 조회
+
+  --- 기타 ---
+  get_common_code_index / get_common_code_indexes
+    - 공통 코드 인덱스 조회 (DB 조회 → analytic-service 상수로 전환 예정)
+
+  mart_exists(service_db_info, auth_key, mart_name)
+    - 마트 존재 여부 확인
+
+  get_mart_list / get_export_mart_list
+    - 마트 목록 조회 (전체 / 외부 배포용)
+
+  get_first_n_lines_in_server_repository / get_first_n_lines_in_serving_repository
+    - 서버 저장소의 마트 앞부분 미리보기
+
+  table_to_server / chips_to_server / upload_mart_from_serving
+    - 테이블/CHIPS 데이터를 서버로 전송
+
+  get_constants(service_db_info, auth_key)
+    - 플랫폼 전역 상수를 JSON으로 반환
+
+  create_feature_name()
+    - 자동 피처명 생성
+
+  get_domain_index / get_variable_length
+    - 도메인 인덱스 / 변수 길이 조회
+
+
+================================================================================
+4. python_model_executor.py — Pure Python ML 모델 학습
+================================================================================
+
+[ 한 줄 요약 ]
+H2O 없이 sklearn / TensorFlow / Keras / LightGBM /
+XGBoost / CatBoost 등 Python 네이티브 라이브러리로
+모델을 학습하는 Python 전용 ML 실행기.
+
+[ 역할 상세 ]
+H2O 서버 없이 완전히 Python 환경에서 동작하는 ML 학습 모듈입니다.
+딥러닝(DNN/RNN), 그래디언트 부스팅, SVM, 앙상블 등
+다양한 알고리즘을 지원하며 등급화, 다중 타겟, 협업필터링도 포함합니다.
+
+[ 주요 함수 설명 ]
+
+  --- 딥러닝 ---
+  compute_balanced_class_weight(y_values)
+    - 불균형 클래스에 대한 가중치 자동 계산
+    - TF v2에서 class_weight은 dict 형태여야 함
+
+  fit_dnn_keras()
+    - Keras 기반 DNN(Deep Neural Network) 학습
+    - 표준화, 결측 처리, 다중 레이어 구성 지원
+
+  fit_rnn_keras()
+    - Keras 기반 RNN(Recurrent Neural Network) 학습
+
+  dnn_param_search_gaussian()
+    - 가우시안 프로세스 기반 DNN 하이퍼파라미터 자동 탐색
+
+  fit_lattice()
+    - Lattice(격자) 모델 학습
+
+  --- 그래디언트 부스팅 ---
+  fit_lightgbm()
+    - LightGBM 모델 학습
+
+  fit_xgboost()
+    - XGBoost 모델 학습
+
+  fit_catboost()
+    - CatBoost 모델 학습 (범주형 변수 자동 처리)
+
+  --- 변수 선택 ---
+  boruta()
+    - Boruta 알고리즘을 통한 중요 변수 자동 선택
+    - 이산 변수에 Label Encoding 적용
+
+  --- 앙상블·협업필터링 ---
+  ensemble()
+    - 여러 모델의 예측을 결합하는 앙상블 실행
+
+  fit_cf()
+    - 협업 필터링(Collaborative Filtering) 학습
+
+  upload_features_cf(...)
+    - CF 피처를 파일서버에 업로드
+
+  --- SVM ---
+  fit_svm()
+    - sklearn 기반 SVM 분류 모델 학습
+    - H2O는 분류 SVM만 지원하므로 sklearn 사용
+
+  fit_anomaly_svm()
+    - sklearn One-Class SVM 이상탐지
+    - H2O가 One-Class SVM 미지원이므로 sklearn 사용
+
+  save_svm_model()
+    - SVM 결과를 ZIP 파일로 저장 (asvm, zsvm)
+
+  --- NiceML 자체 모델 ---
+  niceml()
+    - NiceML 자체 모델 학습 (표준화, 결측 처리 메타 포함)
+
+  predict_niceml(model_file_list, df)
+    - NiceML 모델로 예측 수행
+
+  --- 등급화 ---
+  predict_grade()
+    - 예측 점수를 등급으로 변환
+
+  auto_grade_user_define(df_score_dist, df_grade_info, score_ascending)
+    - 사용자 정의 기준으로 자동 등급 부여
+
+  auto_grade_badrate(df_score_dist, df_grade_info, score_ascending)
+    - Bad Rate 기반으로 자동 등급 부여
+
+  _count_table_for_grading()
+    - 등급화를 위한 카운트 테이블 생성
+
+  --- 다중 타겟 ---
+  process_multitarget()
+    - 다중 타겟 변수 처리 로직
+
+  get_multitarget_df()
+    - 다중 타겟 데이터프레임 구성
+
+  adjust_multitarget_result_json()
+    - 다중 타겟 결과 JSON 조정
+
+  --- 기타 ---
+  gridsearch_py()
+    - Python 모델(XGBoost, LightGBM) 그리드서치
+
+  calculate_statistics(...)
+    - 학습 결과 통계 산출 (fire and forget 방식)
+
+  auto_split()
+    - 데이터 자동 분할 (학습/검증)
+
+  n_dtype() / predict_dtype()
+    - 변수 타입 판별
+
+  save_fitting_result()
+    - 학습 결과 파일 저장
+
+  get_cv_hist_log()
+    - Cross-Validation 이력 로그 생성 (Python 노드 공통)
+
+  fit_score_cutoff()
+    - 점수 컷오프 기준 학습
+
+  _dtype_count_table()
+    - 트리 정보 기반 데이터 타입별 카운트 테이블
+
+
+================================================================================
+5. python_h2o_model_executor.py — Python + H2O 통합 모델 학습
+================================================================================
+
+[ 한 줄 요약 ]
+H2O 프레임워크를 Python API로 제어하여
+H2O 고유 기능(AutoEncoder, GLRM, SVD, Uplift RF)을
+Python 환경에서 학습하는 통합 모듈.
+
+[ 역할 상세 ]
+h2o_model_executor.py가 H2O 서버를 직접 연결하는 저수준 모듈이라면,
+이 파일은 Python H2O API를 통해 H2O 기능을 활용합니다.
+특히 Uplift 모델, RuleFit, AutoEncoder 등 H2O 특화 기능을 제공합니다.
+
+[ 주요 함수 설명 ]
+
+  --- H2O 데이터 처리 ---
+  get_h2o_frame()
+    - Pandas DataFrame을 H2O Frame으로 변환
+
+  predict_h2o_frame()
+    - H2O Frame을 사용한 예측 수행
+
+  --- 주요 모델 학습 ---
+  fit_xgboost() / fit_gbm() / fit_rf() / fit_dnn()
+    - H2O 기반 XGBoost / GBM / Random Forest / DNN 학습
+
+  fit_gridsearch()
+    - H2O 그리드서치 실행
+
+  paramsearch_rf() / paramsearch_gbm() / paramsearch_xgboost() / paramsearch_dnn()
+    - 각 알고리즘별 파라미터 탐색
+
+  --- Uplift 모델 (마케팅 효과 측정) ---
+  fit_uplift_drf()
+    - Uplift Random Forest 학습
+    - 처치군(Treatment) vs 대조군(Control) 효과 측정
+
+  predict_uplift_drf()
+    - Uplift DRF 예측
+
+  get_bins_labels()
+    - Uplift 구간 레이블 생성
+
+  is_beta_positive(x, y)
+    - 베타 분포 양성 여부 판별
+
+  get_uplift_dist()
+    - Uplift 분포 산출 (uplift_table, Qini 곡선 포함)
+
+  --- 이상탐지·특징 추출 ---
+  fit_anomaly_ae()
+    - H2O AutoEncoder 기반 이상탐지 학습
+
+  predict_anomaly()
+    - AutoEncoder 이상탐지 예측
+
+  feature_ae()
+    - AutoEncoder를 통한 특징 추출 (차원 축소)
+
+  feature_glrm()
+    - GLRM(일반화 저랭크 모델)을 통한 특징 추출
+
+  feature_svd()
+    - SVD(특이값 분해)를 통한 차원 축소
+
+  process_autoencoder_with_h2o_frame()
+    - H2O Frame 기반 AutoEncoder 전처리 실행
+
+  _apply_stacked_ae_array()
+    - 스택형 AutoEncoder 배열 적용
+
+  --- AutoML ---
+  fit_automl()
+    - H2O AutoML 학습 (자동 알고리즘 선택)
+
+  fit_selected_automl_model()
+    - AutoML 결과 중 선택된 모델만 재학습
+
+  --- RuleFit ---
+  fit_rulefit()
+    - RuleFit 모델 학습 (트리 기반 해석 가능 규칙 생성)
+
+  predict_rulefit_ml() / predict_rulefit()
+    - RuleFit 모델 예측
+
+  convert_rulefit_linear_to_category()
+    - RuleFit 선형 결과를 범주형으로 변환
+
+  --- 다중 타겟 ---
+  process_multitarget_with_h2o_frame()
+    - H2O Frame을 활용한 다중 타겟 처리
+
+  get_multitarget_h2o_frame()
+    - 다중 타겟용 H2O Frame 구성
+
+  adjust_multitarget_result_json()
+    - 다중 타겟 결과 JSON 조정
+
+  --- 앙상블 ---
+  fit_under_ensemble()
+    - 언더샘플링 앙상블 학습
+
+  --- 기타 ---
+  get_h2o_model_summary(model)
+    - H2O 모델 요약 정보 문자열 반환
+
+  save_mojo_pojo_model_file()
+    - H2O MOJO/POJO 형식 모델 파일 저장 (Java 배포용)
+
+  model_var_imp()
+    - H2O 모델 변수 중요도 조회
+
+  model_scoring_history()
+    - H2O 모델 학습 이력(Loss 변화) 조회
+
+  report_runcorr()
+    - 상관분석 리포트 생성
+
+  black_scholes_formula(x)
+    - 블랙-숄즈 옵션 가격 공식 계산 (금융 분석용)
+
+  save_h2o_fitting_result()
+    - H2O 학습 결과 파일 저장
+
+
+================================================================================
+6. automl_executor.py — NiceML 자체 AutoML 엔진
+================================================================================
+
+[ 한 줄 요약 ]
+Hyperopt 기반으로 여러 알고리즘을 자동 탐색하고
+앙상블까지 구성하는 플랫폼의 핵심 AutoML 모듈.
+
+[ 역할 상세 ]
+사용자가 알고리즘을 직접 선택하지 않아도 최적 모델을 자동으로 찾아주는
+NiceML 플랫폼의 자체 AutoML 엔진입니다. Hyperopt(베이지안 최적화)를 사용하여
+하이퍼파라미터 공간을 탐색하고, 최종적으로 앙상블까지 자동 구성합니다.
+
+[ 학습 파이프라인 (fit_nice_auto_ml 내부 흐름) ]
+  1. 다중 타겟 설정 확인
+  2. 저장 파라미터 설정
+  3. 기존 파일/DB 정리
+  4. 파라미터 딕셔너리 구성
+  5. 변수 선택 (Variable Selection)
+  6. fccc_result_json 조정
+  7. 입력 데이터 준비
+  8. 샘플링 수행
+  9. H2O Frame 설정
+  10. 검증셋 구성 (nfolds 여부 판단)
+  11. Hyperopt 탐색 공간(Space) 및 목적 함수(Objective) 정의
+  12. 조기 종료(stopping_rounds) 지원
+  13. 알고리즘별 best model 선택
+  14. 앙상블 구성 (가중치 자동 생성)
+  15. 모델 파일 및 DB 저장
+
+[ 주요 함수 설명 ]
+
+  fit_nice_auto_ml()
+    - AutoML 전체 파이프라인 실행 함수
+    - 위 1~15 단계 전부를 포함하는 메인 함수
+
+  predict_nice_auto_ml(service_db_info, ...)
+    - AutoML로 학습된 모델을 사용하여 예측 수행
+    - H2O/Python 혼합 모델 모두 처리 가능
+
+  apply_nice_auto_ml()
+    - 학습된 AutoML 모델을 운영 환경에 적용
+
+  get_automl_objective_loss(ks_dev, ks_val, best_model_multiplier=5, val_perf_rate=100)
+    - KS 통계량(개발/검증)을 기반으로 Hyperopt 목적 함수 손실값 계산
+    - 검증 KS와 개발 KS 간 과적합 여부 반영
+
+  generate_ensemble_weights(n_models, inc=0.1)
+    - 앙상블 구성 모델 수에 맞는 가중치 조합 자동 생성
+    - 0.1 단위 증분으로 모든 가중치 조합 열거
+
+  convert_hidden_layer_to_dict(hidden_layer_str)
+    - DNN 히든레이어 문자열을 딕셔너리로 변환
+
+  convert_list_to_hp(d)
+    - 파라미터 리스트를 Hyperopt 탐색 공간 형식으로 변환
+
+
+================================================================================
+7. h2o_model_executor.py — H2O 서버 직접 연동 모델 학습
+================================================================================
+
+[ 한 줄 요약 ]
+H2O 클러스터 서버에 직접 접속하여
+R/H2O 환경의 모델 학습을 저수준으로 제어하는 모듈.
+
+[ 역할 상세 ]
+python_h2o_model_executor.py가 Python H2O API를 쓰는 반면,
+이 파일은 h2o_host, h2o_port, h2o_script_obj 등
+서버 연결 정보를 직접 관리하는 저수준 H2O 실행기입니다.
+R 기반 모델과의 통합, H2O 서버 직접 제어, PSM 분석 등을 담당합니다.
+
+[ 주요 함수 설명 ]
+
+  connect_h2o(h2o_host, h2o_port, no_progress=True)
+    - H2O 서버에 직접 연결 (모든 H2O 함수의 전제 조건)
+
+  import_h2o_frame()
+    - 데이터를 H2O 서버로 임포트하여 H2O Frame 생성
+
+  --- 주요 모델 학습 (공통 파라미터: service_db_info, file_server_host/port, ...) ---
+  fit_glm(...)
+    - H2O GLM(일반화 선형 모델) 학습
+    - 로지스틱 회귀, 선형 회귀 포함
+
+  fit_rf(...)
+    - H2O Random Forest 학습
+
+  fit_gbm(...)
+    - H2O Gradient Boosting Machine 학습
+
+  fit_xgboost(...)
+    - H2O XGBoost 학습
+
+  fit_dnn(...)
+    - H2O Deep Learning(DNN) 학습
+
+  fit_kmeans()
+    - H2O K-Means 군집분석
+
+  fit_anomaly(...)
+    - H2O AutoEncoder 기반 이상탐지 학습
+
+  --- 파라미터 탐색 ---
+  fit_gridSearch(...)
+    - H2O 그리드서치 실행
+
+  paramsearch_rf() / paramsearch_gbm() / paramsearch_xgboost() / paramsearch_deep()
+    - 각 알고리즘별 파라미터 탐색
+
+  --- 특징 추출 ---
+  feature_ae(...)
+    - H2O AutoEncoder 특징 추출
+
+  feature_glrm(...)
+    - H2O GLRM 차원 축소
+
+  feature_svd(...)
+    - H2O SVD 차원 축소
+
+  --- 앙상블·사전학습 ---
+  fit_under_ensemble()
+    - 언더샘플링 앙상블 학습
+
+  fit_for_stacking()
+    - 스태킹 앙상블을 위한 base 모델 학습
+
+  fit_pretrained()
+    - 외부 사전학습 모델 로드 및 적용
+
+  load_pretrained_ensemble()
+    - 사전학습 앙상블 모델 로드
+
+  upload_forced_model_file(service_db_info, file_server_host, file_server_port, json_obj)
+    - 외부에서 가져온 모델 파일을 강제로 플랫폼에 등록
+
+  --- AutoML ---
+  fit_automl(...)
+    - H2O 서버 기반 AutoML 학습
+
+  fit_selected_automl_model()
+    - AutoML 결과 중 특정 모델 선택하여 재학습
+
+  --- 리포트·분석 ---
+  report_runcorr()
+    - 상관분석 실행 (fire and forget 로직 포함)
+
+  report_removecorr()
+    - 상관이 높은 변수 제거 리포트
+
+  model_var_imp()
+    - H2O 모델 변수 중요도 조회
+
+  model_scoring_history()
+    - H2O 모델 학습 이력 조회
+
+  data_psm()
+    - PSM(Propensity Score Matching, 성향점수 매칭) 분석
+
+  predict_contributions(model_id, h2o_host, h2o_port, pandas_df, var_layout_json)
+    - 변수별 예측 기여도(SHAP 유사) 산출
+
+  get_glm_coef()
+    - GLM 모델의 회귀계수 조회
+
+  --- 다중 타겟 ---
+  adjust_multitarget_result_json()
+    - 다중 타겟 결과 JSON 조정 (MOJO 저장 파라미터 추가)
+
+  --- 저장 ---
+  save_stg_obj_with_properties(...)
+    - 속성 포함 Stage 객체 저장
+
+  save_mojo_pojo_model_file(...)
+    - H2O MOJO/POJO 모델 파일 저장 (Java 배포용)
+
+
+================================================================================
+8. predict_executor.py — 통합 예측 실행기
+================================================================================
+
+[ 한 줄 요약 ]
+학습된 모든 종류의 모델(Python/H2O/R/Scorecard/Ensemble)에 대해
+예측을 실행하고 성능 지표를 산출하는 통합 예측 레이어.
+
+[ 역할 상세 ]
+NML에서 지원하는 모든 모델 유형에 대한 예측을 단일 인터페이스로 처리합니다.
+Python, H2O, R, 앙상블, 스코어카드, 신용점수 등 모든 예측 경로를 통합합니다.
+
+[ 지원 모델 타입 분류 ]
+  - H2O_MINING_TYPES: RANDOMFOREST, DEEPLEARNING, GRADIENTBOOSTING, GLM,
+    XGBOOST, AUTOML, KMEANS, ANOMALY, PRETRAINED 등
+  - R_MINING_TYPES: LOGISTICREGRESSION, DECISIONTREE_C50/RPART, ANNLP, SVM 등
+  - DISCRETE_MINING_TYPES: 이산(분류) 예측 모델
+  - LINEAR_MINING_TYPES: 선형(연속) 예측 모델
+  - PYTHON_MINING_TYPES: DECISIONTREEPY 등
+
+[ 주요 함수 설명 ]
+
+  predict_python(service_db_info, ...)
+    - Python 모델 예측 실행
+    - 표준화(mean/stddev), 결측 처리, 이산값 처리 포함
+    - 선형 모델의 경우 reverse prob 비활성화
+    - 출력 파라미터 파일로 결과 저장
+
+  predict_h2o_r(service_db_info, ...)
+    - H2O 및 R 모델 예측 실행
+    - 마이닝 타입별 예측 경로 분기 처리
+    - 예측 성능 지표 반환
+
+  predict_ensemble()
+    - 여러 모델의 예측을 가중 결합하는 앙상블 예측
+
+  predict_under_ensemble()
+    - 언더샘플링 앙상블 노드 예측
+
+  predict_pretrained_ensemble()
+    - 사전학습 앙상블 모델 예측
+    - AutoEncoder / reverse_prob / weight 처리
+    - Python에서 성능 재계산 (H2O migration 과정)
+
+  predict_multitarget_validation_h2o_r()
+    - H2O/R 기반 다중 타겟 검증 예측
+
+  predict_multitarget_validation_h2o_py()
+    - Python H2O 기반 다중 타겟 검증 예측
+    - LightGBM H2O 버전 지원
+    - AutoEncoder 처리 포함
+
+  predict_multitarget_validation_python()
+    - Pure Python 기반 다중 타겟 검증 예측
+
+  predict_h2o_autoencoder()
+    - H2O AutoEncoder 이상탐지 예측 (R 방식)
+
+  predict_h2o_autoencoder_py()
+    - H2O AutoEncoder 이상탐지 예측 (Python 방식)
+
+  predict_score(service_db_info, ...)
+    - 신용점수 변환 예측 실행
+
+  make_score(pdo_value, anchor_value)
+    - PDO(Points to Double Odds) 방식으로 신용점수 계산
+    - score = anchor + pdo * log2(odds)
+
+  make_score2(x_pdo_value, anchor_value, prob_minimum, prob_maximum, score_minimum, score_maximum)
+    - 점수 범위(min/max)를 직접 지정하는 신용점수 변환 방식
+
+  predict_scorecard(service_db_info, ...)
+    - 스코어카드 전체 예측 파이프라인
+    - 등급별 리포팅, 그룹별 카운트 포함
+
+  predict_scorecard_py()
+    - Python 전용 스코어카드 예측
+
+  predict_score_ranking()
+    - 점수 랭킹(백분위) 기반 예측
+
+  predict_score_cutoff()
+    - 점수 컷오프 기준 예측
+
+
+================================================================================
+9. scorecard_executor.py — 신용평가 스코어카드 모델
+================================================================================
+
+[ 한 줄 요약 ]
+금융권 신용평가에 특화된 스코어카드 학습 파이프라인으로
+Auto-binning → SPV Binning → Recoding → LightGBM → 평점 산출까지
+전 과정을 처리하는 전문 모듈.
+
+[ 역할 상세 ]
+일반 ML 모델과 달리 금융 신용평가에서 요구되는 해석 가능성과
+규제 요건을 충족시키기 위한 스코어카드 특화 모듈입니다.
+XGBoost/LightGBM 트리 모델을 스코어카드 형태로 변환합니다.
+
+[ fit_scorecard_ml 학습 단계 ]
+  1. Target 데이터 전처리 (0, 1, 2 허용 → 학습용 전처리)
+  2. CB(Credit Bureau) 정보 처리
+  3. Auto-binning (자동 구간화)
+  4. SPV Binning (1~3개 구간 단순화)
+  5. Recoding (구간 → 범주 인코딩)
+  6. 파라미터 설정
+  7. Train Set 정의
+  8. Validation Set 정의
+  9. LightGBM/XGBoost Fitting
+  10. 최대 변수 개수 제한 적용 (Tree 제거)
+  11. 변수 중요도 재산출
+  12. Cross-Validation 처리
+  13. Tree 분해 및 Recoding Range 보정 (Raw Value → Range)
+  14. Recode 변수 Range_Desc 원래 값으로 대체
+  15. XGBoost 결과 반영 (Depth>=2: 묶음, Depth=1: 원래 유지)
+  16. 평점 산출
+  17. 예측
+  18. 성능 평가
+  19. 출력 파일 작성
+  20. 요약 (Log, Scoring history, Variable importance)
+  21. 원본 LightGBM 모델 파일 저장
+  22. Sub-Target 계산
+
+[ 주요 함수 설명 ]
+
+  debug_export(df, outfilename)
+    - 디버그용 DataFrame을 파일로 내보내기
+
+  fit_scorecard_ml(service_db_info, ...)
+    - 위 1~22 단계 전체를 실행하는 메인 학습 함수
+
+  recoding(df_data, df_range)
+    - 연속 변수를 구간 범주로 인코딩
+
+  get_feature_properties(var_layout_df)
+    - 변수별 교호작용 제약 조건 설정
+    - interaction_constraints는 feature index 기준 [[0,1,2], [2,3,4]] 형태
+
+  make_py_expression_from_cc(df_CcResult, df_var_layout)
+    - VAR_NM, CC, RANGE_DESC를 받아 Python 조건 표현식 생성
+
+  predict_scorecard(df_data, df_scorecard, output_param_column_name, ...)
+    - 스코어카드 적용하여 점수 예측 및 성능 계산
+
+  summary_scorecard(pred_df, pred_val_df, scorecard_df, ...)
+    - 등급별 요약 통계 산출
+    - 검증 데이터 PSI(Population Stability Index) 산출
+    - JSON 형태로 PSI 반환
+
+  calculate_scorecard(df_data, df_scorecard, target, ...)
+    - 개발 데이터 점수 분포 및 지표 산출
+
+  convert_tree_to_scorecard(df_tree, anchor=500, pdo=40, ...)
+    - 트리 모델 결과를 스코어카드 형식으로 변환
+    - PDO 방식 점수 부여 (anchor=500점, pdo=40점)
+
+  convert_single_tree_to_scorecard(df_tree)
+    - 단일 트리를 스코어카드로 변환
+
+  checkpoint_scorecard()
+    - 스코어카드 중간 체크포인트 저장
+
+  predict_scorecard_ml()
+    - ML 기반 스코어카드 예측
+
+  calculate_editclass_statistics()
+    - 등급 수동 수정 후 통계 재산출
+
+
+================================================================================
+10. export_executor.py — 모델 Java/JAR 배포 변환기
+================================================================================
+
+[ 한 줄 요약 ]
+학습된 ML 모델을 실시간 서빙(Real-time Scoring)을 위한
+Java JAR 파일 또는 MDL 파일로 변환·내보내기하는 모듈.
+
+[ 역할 상세 ]
+Python/H2O에서 학습된 모델을 Java 런타임에서 실행 가능한 JAR 파일로
+변환합니다. 이를 통해 별도 Python 환경 없이도 실시간 예측 서버를 구동할 수 있습니다.
+각 알고리즘마다 모델 내부 구조를 Java 코드로 재현합니다.
+
+[ JAR 변환 공통 절차 ]
+  1. 모델 메타 JSON 로드
+  2. discrete_values_map 생성 (이산값 처리)
+  3. missing_imputation_map 생성 (결측값 처리)
+  4. features_mapper 생성 (변수명 매핑)
+  5. 모델 로드
+  6. Booster(Java 모델 코드) 생성
+  7. Java 소스 컴파일 → JAR 빌드
+  8. 임시 파일 정리
+
+[ 주요 함수 설명 ]
+
+  ml_export_lgbm_jar(service_db_info, java_module_root_dir, ...)
+    - LightGBM 모델을 Java JAR로 변환
+
+  ml_export_xgbm_jar(service_db_info, java_module_root_dir, ...)
+    - XGBoost 모델을 Java JAR로 변환
+
+  ml_export_cbm_jar(service_db_info, java_module_root_dir, ...)
+    - CatBoost 모델을 Java JAR로 변환
+    - CTR 해시맵, cat 해시맵 별도 처리
+
+  ml_export_h2o_model_jar()
+    - H2O 모델을 POJO→JAR로 변환
+    - Python 모델(rclips)을 위한 Java 소스 수정 포함
+
+  ml_export_py_model_jar(service_db_info, java_module_root_dir, ...)
+    - Python DNN 모델을 JAR로 변환
+    - DEEPLEARNINGLINEARPY: jdnn/zdnn 형태 ZIP 패키징
+
+  ml_export_anomaly_jar()
+    - 이상탐지 모델을 JAR로 변환
+
+  ml_export_svm_model(service_db_info, ...)
+    - SVM 모델을 ZIP으로 패키징
+
+  ml_export_nice_auto_ml_jar()
+    - AutoML 모델을 JAR로 변환
+
+  ml_export_nice_auto_ml_mdl() / ml_export_nice_auto_ml_mdl_test()
+    - AutoML 모델을 MDL 포맷으로 변환
+
+  ml_export_ensemble_jar()
+    - 앙상블 모델을 JAR로 변환
+
+  ml_export_model(service_db_info, ...)
+    - H2O/R 모델 파일 내보내기
+
+  ml_export_mdl(service_db_info, ...)
+    - 모델을 MDL 포맷으로 내보내기
+
+  ml_export_py_model()
+    - Python 모델 내보내기
+
+  ml_export_reason_code_jar(java_home, json_obj)
+    - Reason Code(변수 기여도) JAR 내보내기
+    - 임시 결과 파일을 단일 폴더에 생성
+
+  ml_check_pojo_exists(...)
+    - H2O POJO 파일 존재 여부 확인
+
+  ml_get_mart_joined_with_feature_engineering_result()
+    - Feature Engineering 결과와 마트 조인 데이터 조회
+
+  --- 유틸 함수 ---
+  make_discrete_values_map_str(disc_values)
+    - 이산값 처리 Java 맵 코드 문자열 생성
+
+  make_missing_imputation_map_str(missing_imputation_dict)
+    - 결측값 처리 Java 맵 코드 문자열 생성
+
+  make_py_model_jar_file(java_template_str, model_prefix, java_home, ...)
+    - Java 소스를 컴파일하여 JAR 파일 생성
+
+  make_lgbm_booster(booster, features_mapper)
+    - LightGBM 트리 구조를 Java 코드로 변환
+
+  make_xgbm_booster(booster, features_mapper)
+    - XGBoost 트리 구조를 Java 코드로 변환
+
+  make_cbm_booster(ctr_idx, features_info, trees)
+    - CatBoost 트리 구조를 Java 코드로 변환
+
+  append_tree(node_index, indent, left_right)
+    - 트리 노드를 Java if-else 조건문으로 재귀 변환
+
+  from_pyxgb_to_lgb_booster(xgb_booster)
+    - XGBoost booster를 LightGBM 형식으로 변환
+
+
+================================================================================
+11. pretrained_executor.py — 사전학습 모델 로드·예측
+================================================================================
+
+[ 한 줄 요약 ]
+플랫폼 외부에서 학습된 모델 파일을 로드하여
+즉시 예측에 사용할 수 있게 해주는 모듈.
+
+[ 역할 상세 ]
+NML 플랫폼에서 학습하지 않은 외부 모델(MDL 파일, H2O MOJO 등)을
+가져와서 예측 파이프라인에 바로 투입할 수 있습니다.
+기존 운영 모델을 플랫폼으로 마이그레이션할 때 활용됩니다.
+
+[ 주요 함수 설명 ]
+
+  preload_mdl(json_obj)
+    - MDL 파일을 base64 디코딩하여 메모리에 로드
+    - 모델 타입과 변수 레이아웃 DataFrame 반환
+      {"ModelType": model_type, "VarLayout": layout_df.to_json(...)}
+
+  load_model_file(model_type, model_file_path, h2o_host, h2o_port, ...)
+    - 모델 타입에 따라 적절한 방식으로 파일 로드
+    - H2O 모델: H2O 서버에 로드
+    - Python 모델: pickle/joblib 로드
+
+  load_pretrained_model(service_db_info, file_server_host, file_server_port, ...)
+    - 파일서버에서 사전학습 모델을 다운로드하여 로드
+
+  predict_pretrained_model()
+    - 사전학습 모델로 예측 실행
+    - 앙상블 노드는 Python에서 성능 재계산
+    - H2O → Python migration 중 정리 예정
+
+  convert_ensemble_to_rclips_model(service_db_info, ...)
+    - 앙상블 모델을 rclips(R 기반) 포맷으로 변환
+    - Java 배포를 위한 중간 변환 단계
+
+
+================================================================================
+12. rl_executor.py — 강화학습(Reinforcement Learning) 에이전트
+================================================================================
+
+[ 한 줄 요약 ]
+Keras 기반 REINFORCE 알고리즘으로 강화학습 정책을 학습하는 모듈.
+(현재 행 단위 처리로 인한 성능 이슈 개선 검토 중)
+
+[ 역할 상세 ]
+금융 의사결정(대출 한도 결정, 마케팅 오퍼 선택 등)에
+강화학습을 적용합니다. 에이전트가 환경(실제 데이터 기반)과
+상호작용하며 정책을 학습합니다.
+
+[ 현재 개선 과제 ]
+  1. ReinforceAgent/EnvironmentReal이 데이터 1행씩 처리 → 배치 처리로 변경 필요
+  2. 보상(Reward) 산출 방법 검토 필요 (행 단위 처리로 학습 속도 저하)
+  3. H2O Frame 변환 오버헤드 검토 필요
+
+[ 지원 환경 모델 타입 ]
+  H2O_MINING_TYPES: RANDOMFOREST, DEEPLEARNING, GRADIENTBOOSTING, GLM,
+    LINEARREGRESSIONNEW, XGBOOST, AUTOML, KMEANS, ANOMALY, PRETRAINED 등
+  R_MINING_TYPES: LOGISTICREGRESSION, DECISIONTREE_C50/RPART, ANNLP, SVM 등
+
+[ 주요 클래스·함수 설명 ]
+
+  class ReinforceAgent_keras
+    - Keras DNN 기반 강화학습 정책 네트워크
+
+    __init__(action_size, state_size, hidden_layers_info)
+      - 행동 공간 크기, 상태 공간 크기, 히든 레이어 구성으로 초기화
+
+    build_model()
+      - 정책 네트워크(DNN) 구조 정의 및 컴파일
+
+    optimizer()
+      - 학습 최적화 함수 설정
+
+    get_action(state, exploration_rate=0)
+      - 현재 상태(state)에서 행동 선택 (탐색/활용 균형)
+
+    get_action_det(state)
+      - 결정론적 행동 선택 (탐색 없이 최적 행동만)
+
+    discount_rewards(rewards)
+      - 미래 보상에 대한 할인 계수 적용 (γ^t * r_t)
+
+    append_sample(state, action, reward)
+      - 경험 데이터(state, action, reward) 버퍼에 추가
+
+    train_model()
+      - 수집된 경험으로 정책 네트워크 업데이트
+
+    oneshot_code(action)
+      - 행동을 One-Hot 인코딩으로 변환
+
+  class ReinforceAgent
+    - (구버전) R 기반 강화학습 에이전트
+
+  rlenv()
+    - 강화학습 환경 실행 진입점
+
+  rlagent()
+    - 강화학습 에이전트 실행 진입점
+
+
+================================================================================
+13. rulesearch_executor.py — 규칙 탐색·최적화
+================================================================================
+
+[ 한 줄 요약 ]
+데이터에서 비즈니스 규칙을 자동 탐색하고
+GA(유전 알고리즘) / Greedy 알고리즘으로
+최적 규칙 조합을 선택하는 모듈.
+
+[ 역할 상세 ]
+ML 모델 대신 "IF-THEN" 형태의 비즈니스 규칙을 자동으로 발견합니다.
+신용심사, 이상탐지, 마케팅 타겟팅 등에서 해석 가능한 규칙 기반 의사결정을
+지원합니다. 개별 규칙 탐색 후 최적 조합을 최적화 알고리즘으로 선택합니다.
+
+[ 주요 함수 설명 ]
+
+  fit_rule_finder(service_db_info, ...)
+    - 데이터에서 유의미한 규칙 자동 탐색
+    - 규칙 형태: "변수 A > 임계값 AND 변수 B = 범주" 등
+
+  calculate_statistics_rule_finder()
+    - 탐색된 규칙의 통계 산출
+    - 서브 타겟 처리 포함
+    - 타겟 타입(이진/연속) 체크
+
+  rule_count_table(rule_finder, rule_info, df_dev, df_val, ...)
+    - 규칙별 개발/검증 데이터 카운트 테이블 생성
+    - rule_type: "unit"(단위 규칙) / 조합 규칙 구분
+
+  select_top_rules(service_db_info, ...)
+    - 성능 기준으로 상위 규칙 선택
+
+  create_dummy_rules_combination()
+    - 더미 규칙 조합 생성 (최적화 초기값용)
+
+  fit_rule_optimizer_ga()
+    - 유전 알고리즘(GA) 기반 최적 규칙 조합 탐색
+    - fitness function 내부 Exception 발생 시 프로세스 정지 주의
+    - 체크로직은 ruleoptimizer.py에서 이관됨
+    - 단계: 모델 로드 → GA 최적화 → monotonicity 값 변환 → 저장
+
+  fit_rule_optimizer_greedy()
+    - 탐욕 알고리즘 기반 최적 규칙 조합 탐색 (빠른 대안)
+    - 단계: 모델 로드 → Greedy 최적화 → monotonicity 값 변환 → 저장
+
+  predict_rule_optimizer(service_db_info, ...)
+    - 최적화된 규칙(rule_finder 또는 rule_optimizer)으로 예측
+    - 1) finder 모델 로드
+    - 2) optimizer 모델 로드
+    - monotonicity 값 표시용으로 변환하여 반환
+
+
+================================================================================
+14. stg_executor.py — 노드(Stage) 상태·결과 관리
+================================================================================
+
+[ 한 줄 요약 ]
+분석 프로세스의 각 노드(Stage) 실행 결과, 메타정보,
+이력을 저장·조회하는 플랫폼 인프라 레이어.
+
+[ 역할 상세 ]
+NML의 분석 워크플로우는 여러 "Stage(노드)"로 구성됩니다.
+(예: 데이터 입수 노드 → 전처리 노드 → 모델 학습 노드 → 예측 노드)
+이 파일은 각 노드의 실행 결과 객체, 속성, 이력을 DB에 저장하고
+조회하는 인프라 역할을 합니다.
+
+[ 주요 함수 설명 ]
+
+  init_output_parameter(service_db_info, file_server_host, file_server_port, json_obj)
+    - 노드 출력 파라미터 초기화
+    - 노드 실행 시작 전 출력 슬롯 초기화
+
+  save_stg_obj(service_db_info, json_obj)
+    - 노드 실행 결과 객체를 DB에 저장
+
+  save_stg_obj_with_properties(service_db_info, json_obj)
+    - 추가 속성(properties)과 함께 노드 결과 저장
+    - 모델 메타 정보, 파라미터 등 부가 정보 포함
+
+  update_stg_description(service_db_info, json_obj)
+    - 노드 설명(이름, 코멘트) 업데이트
+
+  update_stg_properties(service_db_info, json_obj)
+    - 노드 속성 정보 업데이트
+
+  get_stg_history(service_db_info, auth_key, process_seq, stg_id)
+    - 특정 노드의 전체 실행 이력 목록 조회
+
+  get_stg_history_properties(service_db_info, auth_key, process_seq, stg_id)
+    - 특정 노드의 이력별 속성 정보 조회
+
+  get_stg_history_object(service_db_info, auth_key, process_seq, stg_id, stg_seq)
+    - 특정 시점(stg_seq)의 노드 실행 결과 객체 조회
+
+  delete_stg(service_db_info, auth_key, process_seq, stg_id, stg_seq)
+    - 특정 노드 이력 삭제
+
+  get_number_of_rows_in_node()
+    - 해당 노드에서 처리된 데이터 행 수 조회
+
+  get_mart_data_joined_with_output_parameter()
+    - 마트 원본 데이터 + 노드 출력 파라미터를 조인하여 반환
+    - 예측 결과와 원본 데이터를 함께 조회할 때 사용
+
+  get_mart_data_joined_with_output_parameter_and_condition()
+    - 조건부 마트 + 출력 파라미터 조인 조회
+    - 외부 공개용 앱일 때 사용자 권한(level 2,3)에 따라 내보내기 제한
+    - 최종 내보내기 컬럼 필터링 포함
+    - Windows 로컬 버전 체크 포함
+
+
+================================================================================
+파일 간 의존 관계 요약
+================================================================================
+
+  stg_executor.py         ← 모든 executor가 Stage 저장 시 호출
+  mart_executor.py        ← data_analysis, predict, scorecard 등이 데이터 조회 시 호출
+  process_executor.py     ← 프로세스 단위 관리 (독립적)
+  data_analysis_executor  ← 학습 전 EDA 단계
+  python_model_executor   ─┐
+  python_h2o_model_executor─┤ 학습 단계 (알고리즘별 분기)
+  h2o_model_executor      ─┤
+  automl_executor         ─┤ python_model + h2o_model을 내부 호출
+  scorecard_executor      ─┤
+  rulesearch_executor     ─┘
+  rl_executor             ← h2o_model_executor를 환경 모델로 사용
+  predict_executor        ← 모든 학습 모델의 예측 통합
+  pretrained_executor     ← 외부 모델 → predict_executor로 연결
+  export_executor         ← 학습 완료 모델을 JAR/MDL로 변환
+
+================================================================================
+END OF DOCUMENT
+================================================================================

@@ -1,0 +1,973 @@
+process_executor.py
+
+def _check_process_name_already_exists(company_db_info, prcs_name):
+def get_system_auth_id(service_db_info, auth_key, id_gb_cd):  # get system auth id
+def get_process_list():  # get processes
+def get_export_process_list():  # get export process list
+def modify_process(service_db_info, json_obj):  # modify process
+def create_process(service_db_info, root_dir, json_obj):  # create process
+def apply_process(service_db_info, file_server_host, file_server_port, json_obj):  # apply process (copy)
+def delete_process():  # delete process
+def save_process(service_db_info, meta_json, process_bytes):  # save process
+def get_process_obj(service_db_info, auth_key, process_seq):  # get process object
+def insert_system_auth_id(service_db_info, json_obj):  # insert system auth id
+def delete_system_auth_id(service_db_info, auth_key, id_gb_cd, user_name):  # delete system auth id
+def get_process_history_meta(service_db_info, auth_key, process_seq):  # get process history meta
+def get_process_history_obj(service_db_info, auth_key, process_seq, reg_dtm):  # get process history object
+def create_user_auth(service_db_info, json_obj):  # create user auth
+def get_user_authorities(service_db_info, auth_key, prcs_seq, user_ids=[]):  # get process's user authorities
+def overwrite_template(service_db_info, root_dir, json_obj):
+
+--------------------------------------------------------------------------------------
+
+data_analysis_executor.py
+
+def _variable_analysis_for_each_feature():  # variable analysis (to parallelize)
+
+def variable_analysis():
+    # variable analysis changed to use concurrent.futures.ProcessPoolExecutor instead of multiprocessing
+
+def data_sampling():
+    # process_seq & stg_id are used to get output parameter file path
+
+def data_union(service_db_info, file_server_host, file_server_port, json_obj):
+    # If not sorted, wrong result occurs when joining with mart.
+
+def check_output_param_prob_in_correct_range():
+    # check prob in [0, 1]
+
+def get_distinct_values():
+
+def get_profiling_result():
+
+def delete_profiling_result():
+
+def variable_profiling_from_node():
+    # Add Data Profiling / Add OutputParameter
+    # Make this function called only from profiling node excluding mart upload action
+    # Upload profiling result json
+
+def data_snapshot():
+
+-----------------------------------------------------------------------------
+
+mart_executor.py
+
+def get_common_code_index(service_db_info, auth_key, code, code_role):  # Get variable index
+def get_common_code_indexes(service_db_info, auth_key, code):
+    # Using analytic-service constants for common code. Using DB would be deprecated.
+
+def mart_exists(service_db_info, auth_key, mart_name):  # check if mart exists or not
+def get_mart_domain(service_db_info, auth_key, mart_name, add_whole_domain):  # get mart domain
+
+def add_mart_meta():  
+    # variable info / save meta data of binary variable as binary not char
+    # add domain name length exception message
+
+def get_dtype_from_variable_json(variable_json, columns=None):
+
+def process_uploaded_mart_with_variable_json():
+    # parquet 업로드 시 데이터 형 직접 반영
+
+def process_uploaded_mart():
+    # process uploaded mart(data) / add csv upload mode
+
+def process_uploaded_mart_to_db():
+    # process uploaded mart local windows platform
+    # use predefined schema (uint32, string)
+
+def calculate_statistics_uploaded_mart():
+    # calculate statistics of uploaded mart
+    # Upload profiling result json / Update Profiling Result Filename
+
+def mart_concat_vertical():
+    # 대용량 지원 목적, parquet 등 chunk size 별로 읽어야 의미가 있음
+    # pandas, pyarrow version up 이후 chunk size 적용 필요
+
+def upload_mart():
+    # fire and forget handling should be done at app server.py
+
+def upload_mart_to_db():
+    # add upload mart into database in Windows version ML
+
+def get_auth_level(db_info, user_id):  # get auth level
+
+def get_mart_list(service_db_info, file_server_host, file_server_port, auth_key):  # get mart list
+
+def get_export_mart_list(service_db_info, auth_key, external_purpose):  # get export mart list
+
+def delete_mart():
+def get_mart_layout(service_db_info, auth_key, mart_name):
+def get_mart_layout_featuretools(service_db_info, auth_key, mart_name):
+def get_mart_layout_for_excel(service_db_info, auth_key, mart_name):
+
+def save_mart_layout(service_db_info, json_obj):  # save svd values also
+
+def get_domain_index(service_db_info, auth_key, mart_name, domain_name):  # get domain index
+
+def get_first_n_lines_in_server_repository():
+def get_first_n_lines_in_serving_repository():
+
+def upload_mart_from_serving():
+
+def validate_data(service_db_info, auth_key, mart_name):
+
+def get_server_repository_dirs():
+def get_svd_values(service_db_info, auth_key, mart_name):
+def get_variable_svd_values(service_db_info, auth_key, mart_name, var_name):
+def save_svd():
+
+def get_mart_var_info(service_db_info, auth_key, mart_name, return_all_columns=False):  # get mart variable info
+
+def create_variable_from_other_mart():  # create variable from other mart
+
+def get_variable_length(service_db_info, auth_key, mart_name, var_name):
+    # get var length (based on variable name)
+
+def create_feature_name():
+
+def get_constants(service_db_info, auth_key):  # return constants as json format
+
+def table_to_server():  # upload table to server
+
+def create_user_auth(service_db_info, json_obj):  # create user auth
+
+def get_user_authorities(service_db_info, auth_key, table_id, user_ids=[]):
+    # get mart's user authorities
+
+def get_user_variable(service_db_info, auth_key, mart_name):  # get user variable
+def get_user_variable_operator(service_db_info, auth_key):  # get user variable operator
+
+def get_min_max_count_scale():
+    # added domain_index (to check integrity)
+
+def create_user_variable():
+def create_user_variable_encryption_test(service_db_info, json_obj):
+
+def delete_user_variable():
+    # changed to accept list of variables
+    # fire and forget (because it may take long time)
+
+def replace_user_variable():
+
+def chips_to_server():
+
+def delete_server_repository_file_name(service_db_info, root_dir, auth_key, file_name):
+
+def get_server_repository_var_layout():
+
+def mono_bin(X, n=20):  # calculate IV
+
+def data_vars(df1, target):
+
+----------------------------------------------------
+
+python_model_executor.py
+
+def compute_balanced_class_weight(y_values):
+    # tf v2 raise AttributeError: 'str' object has no attribute 'keys'
+    # class_weight param must be dictionary
+
+def fit_dnn_keras()
+def fit_rnn_keras()
+
+def dnn_param_search_gaussian():
+    # Gaussian search DNN parameter search
+
+def fit_lattice()
+
+def boruta():
+    # boruta node uses label encoder to encode discrete columns
+
+def ensemble()
+
+def predict_niceml(model_file_list, df):
+    # NICEML predict
+
+def niceml():
+    # niceml model meta (standardize, missing_imputation_dict)
+
+def _dtype_count_table():
+    # tree info df_dev, df_val_df, target, good_val, bad_val, subindex_var
+
+def calculate_statistics(
+    service_db_info, file_server_host, file_server_port,
+    result_file_path_faf, done_file_path_faf, root_dir,
+    numpy_use_32bit_float_precision, json_obj
+)
+
+def auto_split()
+
+def n_dtype()
+
+def predict_dtype()
+
+def fit_lightgbm()
+
+def fit_catboost()  # catboost
+
+def fit_xgboost()
+
+def predict_grade()
+
+def _count_table_for_grading()
+
+def auto_grade_user_define(df_score_dist, df_grade_info, score_ascending)
+
+def auto_grade_badrate(df_score_dist, df_grade_info, score_ascending)
+
+def upload_features_cf(
+    service_db_info, root_dir, result_file_path_faf,
+    done_file_path_faf, meta_json, raw_features_file_path,
+    file_server_host, file_server_port, external_purpose
+)
+
+def fit_cf()
+
+def process_multitarget()
+
+def get_multitarget_df()
+
+def adjust_multitarget_result_json()
+
+def save_fitting_result()
+
+def get_cv_hist_log():
+    # cv logging function (common in python nodes)
+
+def gridsearch_py():
+    # add gridsearch for python nodes, XGBoost, LightGBM
+
+def fit_anomaly_svm():
+    # add sklearn one-class SVM
+    # h2o does not support one-class SVM, use sklearn
+
+def fit_svm():
+    # add sklearn classification SVM
+    # h2o supports only classification SVM
+
+def save_svm_model():
+    # save result from SVM model to zip file (asvm, zsvm)
+
+def fit_score_cutoff()
+
+_------------------------------------------------
+
+python_h2o_model_executor
+
+def get_h2o_model_summary(model):  # get model summary string for python h2o models
+
+def save_mojo_pojo_model_file()
+
+def get_h2o_frame()
+
+def predict_h2o_frame()
+
+def predict_anomaly()
+
+def black_scholes_formula(x)
+
+def process_autoencoder_with_h2o_frame()
+
+def _apply_stacked_ae_array()
+
+def process_multitarget_with_h2o_frame()
+
+def adjust_multitarget_result_json()
+
+def get_multitarget_h2o_frame()
+
+def save_h2o_fitting_result()
+
+def model_var_imp()
+
+def model_scoring_history()
+
+def fit_xgboost()
+
+def fit_gbm()
+
+def fit_rf()
+
+def fit_dnn()
+
+# Uplift Random Forest 관련
+
+def get_bins_labels()
+
+def is_beta_positive(x, y)
+
+def get_uplift_dist()  # def uplift_table / def qini
+
+def fit_uplift_drf()
+
+def predict_uplift_drf()
+
+def fit_gridsearch()
+
+def paramsearch_rf()
+def paramsearch_gbm()
+
+def paramsearch_xgboost()
+def paramsearch_dnn()
+
+def fit_anomaly_ae()
+
+def feature_ae()
+
+def feature_glrm()
+
+def feature_svd()
+
+def report_runcorr()
+
+def fit_under_ensemble()
+def fit_automl()
+
+def fit_selected_automl_model()
+def fit_rulefit()
+def predict_rulefit_ml()
+
+def convert_rulefit_linear_to_category()
+
+def predict_rulefit()
+
+----------------------------------------------------
+
+automl_executor.py
+def fit_nice_auto_ml():
+    # multitarget_properties /
+    # parameters for saving /
+    # delete file / delete from DB /
+    # make parameter dictionary /
+    # variable selection /
+    # adjust fccc_result_json /
+    # input data /
+    # sampling /
+    # set h2o_frame /
+    # validation set always exists (nfolds?) /
+    # define space & objective function /
+    # objective function /
+    # support stopping_rounds 0 when validation link exists /
+    # history /
+    # predict /
+    # val perf /
+    # perf & score_distribution /
+    # 2. hyperopt fmin() /
+    # DNN Hidden Layer /
+    # best model by algorithm /
+    # 3. Ensemble /
+    # ensemble dict /
+    # end ensemble /
+    # Save files & DB insert /
+    # when predict it checks model_meta_json by key "monotonicity_dict" /
+    # remove key "params" like the format of grid search /
+    # no need to update validation performance
+
+def convert_hidden_layer_to_dict(hidden_layer_str)
+
+def convert_list_to_hp(d)
+
+def get_automl_objective_loss(ks_dev, ks_val, best_model_multiplier=5, val_perf_rate=100)
+
+def generate_ensemble_weights(n_models, inc=0.1)
+
+def predict_nice_auto_ml(
+    service_db_info,
+    file_server_host,
+    file_server_port,
+    h2o_file_server_host,
+    h2o_file_server_port,
+    numpy_use_32bit_float_precision,
+    result_file_path_faf,
+    done_file_path_faf,
+    h2o_host,
+    h2o_port,
+    h2o_older_version_port,
+    root_dir,
+    json_obj
+)
+
+def apply_nice_auto_ml()
+
+-------------------------------------------------
+h2o_model_executor
+
+def save_stg_obj_with_properties(company_db_info, process_seq, stg_id, stg_name, stg_comment, stg_type, stg_obj, save_desc, user_id, properties)
+
+def save_mojo_pojo_model_file(
+    service_db_info, file_server_host, file_server_port, company_code, process_seq,
+    h2o_host, h2o_port, h2o_script_obj, root_dir, model_file_path_in_h2o_file_server,
+    model_file_name, model_type=""
+)
+
+def fit_gridSearch(service_db_info, file_server_host, file_server_port,
+                   h2o_file_server_host, h2o_file_server_port,
+                   numpy_use_32bit_float_precision,
+                   result_file_path_faf, done_file_path_faf,
+                   h2o_host, h2o_port, h2o_script_obj, root_dir, json_obj)
+
+def fit_glm(service_db_info, file_server_host, file_server_port,
+            h2o_file_server_host, h2o_file_server_port,
+            numpy_use_32bit_float_precision,
+            result_file_path_faf, done_file_path_faf,
+            h2o_host, h2o_port, h2o_script_obj, root_dir, json_obj)
+
+def fit_rf(service_db_info, file_server_host, file_server_port,
+           h2o_file_server_host, h2o_file_server_port,
+           numpy_use_32bit_float_precision,
+           result_file_path_faf, done_file_path_faf,
+           h2o_host, h2o_port, h2o_script_obj, root_dir, json_obj)
+
+def fit_gbm(...)
+
+def fit_xgboost(...)
+
+def fit_kmeans()
+
+def paramsearch_rf(...)
+def paramsearch_gbm()
+def paramsearch_xgboost()
+def paramsearch_deep()
+
+def feature_ae(...)
+def feature_glrm(...)
+def feature_svd(...)
+
+def report_runcorr()  # added fire and forget logic
+def report_removecorr()
+
+def adjust_multitarget_result_json()  
+# add "h2o_host, h2o_port, h2o_script_obj, root_dir" for save_mojo_pojo_model_file()
+
+def fit_dnn()
+
+def fit_under_ensemble()
+
+def fit_automl(service_db_info, file_server_host, file_server_port,
+               h2o_file_server_host, h2o_file_server_port,
+               numpy_use_32bit_float_precision,
+               result_file_path_faf, done_file_path_faf,
+               h2o_host, h2o_port, h2o_script_obj, root_dir, json_obj)
+
+def fit_selected_automl_model()
+
+def fit_anomaly(service_db_info, file_server_host, file_server_port,
+                numpy_use_32bit_float_precision,
+                result_file_path_faf, done_file_path_faf,
+                h2o_file_server_host, h2o_file_server_port,
+                h2o_host, h2o_port, h2o_script_obj, root_dir, json_obj)
+
+def fit_pretrained()
+
+def upload_forced_model_file(service_db_info, file_server_host, file_server_port, json_obj)
+
+def load_pretrained_ensemble()
+
+def fit_for_stacking()
+
+def model_var_imp()
+
+def model_scoring_history()
+
+def data_psm()
+
+def import_h2o_frame()
+
+def connect_h2o(h2o_host, h2o_port, no_progress=True)
+
+def predict_contributions(model_id, h2o_host, h2o_port, pandas_df, var_layout_json):
+    connect_h2o(h2o_host, h2o_port)
+
+def get_glm_coef()
+
+----------------------------------------------
+
+predict_executor.py
+
+def predict_python(
+    service_db_info, file_server_host, file_server_port,
+    root_dir, numpy_use_32bit_float_precision,
+    result_file_path_faf, done_file_path_faf, json_obj
+):
+    # standardization mean & stddev
+    # model info json (discrete values...)
+    # writes output parameter to temp file (True when ensemble)
+    # in case of linear model prediction, disable reverse prob
+    # prevent converting int(NUM_DISC) to float (except lightgbm, XGBOOSTPY)
+    # save result to output parameter file (if exists, just overwrite)
+    # returned as a named list
+
+def predict_h2o_r(
+    service_db_info, file_server_host, file_server_port,
+    h2o_file_server_host, h2o_file_server_port,
+    numpy_use_32bit_float_precision,
+    result_file_path_faf, done_file_path_faf,
+    h2o_host, h2o_port, h2o_older_version_port,
+    h2o_script_obj, script_obj, root_dir, json_obj
+):
+    # writes output parameter to temp file (True when ensemble)
+    # h2o mining types: H2O_MINING_TYPES / DISCRETE_MINING_TYPES / LINEAR_MINING_TYPES
+    # predict h2o models → returns performance
+
+def predict_pretrained_ensemble():
+    # auto-encoder / reverse_prob & weight
+    # ensemble 노드도 python에서 수행하면서 ml_utils.calculate_performance() 이용
+    # ensemble perf 결과와 pretrained ensemble perf 결과를 비슷하게 display 하기 위해 python에서 다시 계산
+    # changed to calculate_perf_and_score_dist()
+    # Upload OutParam → returned as a named list
+
+def predict_multitarget_validation_h2o_r():
+    # supported mining types / load model
+
+def predict_multitarget_validation_h2o_py():
+    # multitarget properties
+    # multitarget weights
+    # supported mining types
+    # lightGBM for h2o version
+    # h2o connection / python h2o prediction with h2o frame
+    # auto-encoder
+    # save OutParam of Predict Node
+
+def predict_multitarget_validation_python():
+    # multitarget validation for python node
+
+def predict_h2o_autoencoder()
+
+def predict_under_ensemble():
+    # predict undersampled ensemble nodes
+
+def predict_ensemble()
+
+def predict_score(
+    service_db_info, file_server_host, file_server_port,
+    result_file_path_faf, done_file_path_faf, root_dir, json_obj
+)
+
+def make_score(pdo_value, anchor_value)
+
+def make_score2(
+    x_pdo_value, anchor_value,
+    prob_minimum, prob_maximum,
+    score_minimum, score_maximum
+)
+
+def predict_scorecard(
+    service_db_info, file_server_host, file_server_port,
+    h2o_file_server_host, h2o_file_server_port,
+    numpy_use_32bit_float_precision,
+    result_file_path_faf, done_file_path_faf,
+    h2o_host, h2o_port, h2o_script_obj,
+    root_dir, json_obj
+):
+    # reporting for each grade
+    # summary_groupby_count(df_cnt_grade)
+    # def predict_niceml / def predict_cf / def predict_h2o_py
+
+def predict_scorecard_py()
+
+def predict_score_ranking()
+
+def predict_h2o_autoencoder_py()
+
+def predict_score_cutoff()
+_----------------------------------
+
+scorecard_executor.py
+
+def debug_export(df, outfilename)
+
+def fit_scorecard_ml(
+    service_db_info, file_server_port,
+    result_file_path_faf, done_file_path_faf,
+    num_threads, numpy_use_32bit_float_precision, json_obj
+):
+    # 변수 선택에서 선택되지 않은 변수 중 서브 타겟 설정에 사용된 변수는 get_selected_data 에서 읽을 수 있도록 추가
+    # 1. Target 에 대한 데이터 전처리. Target 은 0,1,2 를 허용. Fitting 을 위해서 전처리.
+    # 2. CB 정보 처리
+    # 3. Auto-binning
+    # 4. SPV Binning (1~3)
+    # 5. Recoding (1~3)
+    # 6. Parameter Setting
+    # Train Set 정의
+    # Validation Set 정의
+    # fitting
+    # 최대 변수 개수를 설정(max_use>0)한 경우에는 변수 개수가 초과될 때까지 Tree 제거
+    # 변수 중요도 보다 변수 순서 반영
+    # feature importance 가 전체 변수에 대해서 산출됨. 변수 개수 제한해서 다시 수치 산출
+    # cv 처리
+    # Tree 분해 & Recoding 처리 되었던 항목에 대한 Range 보정 (Raw Value → Range)
+    # Recoding Range 보정 (scorecard fit 에서만 필요)
+    # Recode 변수의 Range_Desc 를 원래 값으로 대체
+    # XGBoost 결과를 반영하여 Recode 를 묶어서 보여주는 방법
+    # Depth >= 2 → 묶어서, Depth=1 → 원래 Recode 유지
+    # 8. 평점
+    # 9. Predict
+    # 10. Performance
+    # 11. Write output file
+    # 12. Summary (Log, Scoring history, Variable importance, Scorecard Selected Variable)
+    # 13. Original LightGBM model file
+    # 14. Calculate Sub-Target
+    # 15. Return
+
+def make_py_expression_from_cc(df_CcResult, df_var_layout):
+    # VAR_NM, CC, RANGE_DESC 를 받아서 파이썬 표현식을 만든다.
+
+def recoding(df_data, df_range)
+
+def get_feature_properties(var_layout_df):
+    # interaction_constraints 는 feature index 기준으로 [[0,1,2], [2,3,4]] 형태 입력
+    # Interaction Group 에 변수가 1개만 있는 경우 에러
+    # Interaction Group 이 1개면 모든 변수 교호작용 가능
+
+def predict_scorecard(
+    df_data, df_scorecard,
+    output_param_column_name,
+    output_param_type,
+    reverse_prob=True,
+    calculate_performance=True,
+    target=None
+)
+
+def summary_scorecard(
+    pred_df, pred_val_df, scorecard_df,
+    target, var_layout_df,
+    good_val=0, bad_val=1
+):
+    # class 별 개수 산출 / 검증 데이터에 대한 값 및 PSI 산출
+    # Return columns & nan 처리
+    # PSI 산출 시 JSON 형태로 return
+
+def calculate_scorecard(
+    df_data, df_scorecard,
+    target, good_val=0, bad_val=1
+):
+    # 개발 데이터에 대한 평점 분포 및 지표 산출
+
+def convert_tree_to_scorecard(
+    df_tree, anchor=500, pdo=40,
+    reverse_prob=True, base_gain=?
+)
+
+def convert_single_tree_to_scorecard(df_tree)
+
+def checkpoint_scorecard()
+
+def predict_scorecard_ml()
+
+def calculate_editclass_statistics()
+
+---------------------------------------------------
+
+export_executor.py
+
+def ml_export_reason_code_jar(java_home, json_obj):
+    # make temporary result files in single folder
+
+def ml_export_anomaly_jar():
+    # add Java module root directory
+    # service_db_info, file_server_host, file_server_port, h2o_file_server_host, h2o_file_server_port, h2o_host, h2o_port
+
+def ml_export_lgbm_jar(service_db_info, java_module_root_dir,
+                       file_server_host, file_server_port,
+                       h2o_file_server_host, h2o_file_server_port,
+                       java_home, json_obj):
+    # 1. get model meta json
+    # 2. make discrete_values_map and missing_imputation_map
+    # 3. make features_mapper
+    # 4. load model
+    # 5. make booster
+
+def ml_export_xgbm_jar(service_db_info, java_module_root_dir,
+                       file_server_host, file_server_port,
+                       java_home, json_obj):
+    # 1. get model meta json
+    # 2. make discrete_values_map and missing_imputation_map
+    # 3. make features_mapper
+    # 4. load model
+    # 5. make booster
+    # 6. make model java and jar
+    # 7. delete temp file and dir
+
+def ml_export_cbm_jar(service_db_info, java_module_root_dir,
+                      file_server_host, file_server_port,
+                      java_home, json_obj):
+    # 1. get model meta json
+    # 2. make discrete_values_map and missing_imputation_map
+    # 3. make cat hashes map
+    # 4. make ctr hashes map and ctr_idx
+    # 5. make booster
+    # 6. make model java and jar
+    # 7. delete temp dir
+
+def ml_export_h2o_model_jar():
+    # export java model files
+    # modify java source file export python model (rclips)
+
+def ml_export_py_model_jar(service_db_info, java_module_root_dir,
+                           file_server_host, file_server_port,
+                           java_home, json_obj):
+    # 1. get model meta json
+    # 2. make discrete_values_map and missing_imputation_map
+    # 3. make model java and jar
+    # 4. make zip file (DEEPLERNINGLINEARPY: jdnn / zdnn → jdnn / zdnn)
+    # 5. delete temp dir
+
+# export h2o/r model
+def ml_export_model(service_db_info, file_server_host, file_server_port,
+                    auth_key, process_seq, model_file_name):
+
+def ml_get_mart_joined_with_feature_engineering_result()
+
+def ml_export_py_model()
+
+def ml_check_pojo_exists(auth_key, process_seq, model_file_name,
+                         service_db_info, file_server_host, file_server_port,
+                         h2o_file_server_host, h2o_file_server_port,
+                         h2o_host, h2o_port)
+
+def make_discrete_values_map_str(disc_values)
+
+def make_missing_imputation_map_str(missing_imputation_dict)
+
+def make_py_model_jar_file(java_template_str, model_prefix,
+                           java_home, external_jar_file_path, jdk_version)
+
+def make_lgbm_booster(booster, features_mapper)
+
+def append_tree(node_index, indent, left_right)
+
+def make_xgbm_booster(booster, features_mapper)
+
+def make_cbm_booster(ctr_idx, features_info, trees)
+
+def from_pyxgb_to_lgb_booster(xgb_booster)
+
+def ml_export_mdl(service_db_info, file_server_host, file_server_port,
+                  h2o_file_server_host, h2o_file_server_port,
+                  h2o_host, h2o_port, h2o_older_version_port,
+                  root_dir, json_obj)
+
+def ml_export_ensemble_jar()
+
+def ml_export_svm_model(service_db_info, file_server_host,
+                        file_server_port, root_dir, json_obj)
+
+def ml_export_nice_auto_ml_jar()
+
+def ml_export_nice_auto_ml_mdl()
+
+def ml_export_nice_auto_ml_mdl_test()
+
+---------------------------------------------------------------
+
+pretrained_executor.py
+
+def preload_mdl(json_obj):
+    mdl_file_bytes = base64.b64decode(json_obj["MdlFileBytes"])
+    return {"ModelType": model_type, "VarLayout": layout_df.to_json(orient="records")}
+
+def load_model_file(
+    model_type, model_file_path,
+    h2o_host, h2o_port, h2o_older_version_port,
+    h2o_file_server_host, h2o_file_server_port
+):
+
+def load_pretrained_model(
+    service_db_info, file_server_host,
+    file_server_port,
+    h2o_host, h2o_port, h2o_older_version_port,
+    h2o_file_server_host, h2o_file_server_port,
+    json_obj
+)
+
+def predict_pretrained_model():
+    # ensemble 노드는 파이썬에서 수행하면서 ml_utils.calculate_performance() 이용
+    # ensemble perf 결과와 pretrained ensemble perf 결과를 가능하면 비슷하게 display 하기 위해
+    # r에서 계산하지 않고 다시 계산 / h2o를 파이썬으로 migration하면서 정리 필요
+
+def convert_ensemble_to_rclips_model(
+    service_db_info, file_server_host, file_server_port,
+    h2o_host, h2o_port, h2o_older_version_port,
+    h2o_file_server_host, h2o_file_server_port,
+    java_module_root_dir, java_home, json_obj
+)
+
+---------------------------------------------------------------------------------
+
+rf_executor.py
+
+# 학습 속도에 대한 개선 필요
+
+# 1. ReinforceAgent class, EnvironmentReal class 자체가 데이터 1줄에 대해서 처리하도록 되어 있음
+# - action과 reward를 한번에 여러 데이터를 할 수 있도록 수정 필요
+# - environment return 시에도 한번에 처리될 수 있도록 수정 필요
+
+# 2. 보상 산출 방법 검토 필요
+# - 1을 해결하더라도 보상이 결국 row 단위로 처리됨. 보상에 대한 자유도를 줄이더라도 학습 속도를 높일 수 있도록 변경 필요
+# - 클라이언트의 UI와 함께 바뀌어야함. analytic-service에서의 로직을 검토하고, 그에 맞게 UI도 수정이 필요함
+
+# 3. 데이터는 DataFrame이 기본 단위인데, 향후 성능 최적화를 위해 중간중간 h2o frame으로 변환
+# - predict 할 때마다 h2o로 변환하는데, 해당 시간에 대한 검토도 추가 필요
+
+
+# h2o mining types for Environment Models
+
+H2O_MINING_TYPES = [
+    'RANDOMFOREST', 'DEEPLEARNING', 'GRADIENTBOOSTING', 'GLM',
+    'LINEARREGRESSIONNEW', 'DEEPLEARNINGLINEAR', 'RANDOMFORESTLINEAR',
+    'GRADIENTBOOSTINGLINEAR', 'XGBOOST',
+    'AUTOML', 'AUTOMLGLM', 'AUTOMLDL', 'KMEANS', 'ANOMALY', 'PRETRAINED'
+]
+
+R_MINING_TYPES = [
+    'LOGISTICREGRESSION', 'LINEARREGRESSION', 'DECISIONTREE_C50',
+    'DECISIONTREE_RPART', 'ANNLP', 'ANNMLP',
+    'SVM', 'SVMLINEAR', 'ANOMALYSVM'
+]
+
+DISCRETE_MINING_TYPES = [
+    'RANDOMFOREST', 'DEEPLEARNING', 'GRADIENTBOOSTING',
+    'GLM', 'AUTOML', 'AUTOMLGLM', 'AUTOMLDL', 'XGBOOST'
+]
+
+LINEAR_MINING_TYPES = [
+    'LINEARREGRESSIONNEW', 'DEEPLEARNINGLINEAR',
+    'RANDOMFORESTLINEAR', 'GRADIENTBOOSTINGLINEAR',
+    'LINEARREGRESSION', 'SVMLINEAR'
+]
+
+PYTHON_MINING_TYPES = ['DECISIONTREEPY']
+
+
+# 강화학습 모델
+
+class ReinforceAgent_keras:
+
+    def __init__(self, action_size, state_size, hidden_layers_info):
+        pass
+
+    def build_model(self):
+        pass
+
+    def optimizer(self):
+        pass
+
+    def get_action(self, state, exploration_rate=0):
+        pass
+
+    def get_action_det(self, state):
+        pass
+
+    def discount_rewards(self, rewards):
+        pass
+
+    def append_sample(self, state, action, reward):
+        pass
+
+    def train_model(self):
+        pass
+
+    def oneshot_code(self, action):
+        pass
+
+
+class ReinforceAgent:
+    pass
+
+
+def rlenv():
+    pass
+
+
+def rlagent():
+    pass
+
+---------------------------------------------
+
+rulesearch_executor.py
+def fit_rule_finder(
+    service_db_info, file_server_host, file_server_port,
+    numpy_use_32bit_float_precision,
+    result_file_path_faf, done_file_path_faf, json_obj
+):
+
+def calculate_statistics_rule_finder():
+    # for rule finder calculating statistics
+    # Target Type Check
+    # 1. 서브 타겟
+
+def rule_count_table(
+    rule_finder, rule_info,
+    df_dev, df_val,
+    target, good_val, bad_val,
+    subtarget_json, subindex_json,
+    val_suffix="val", rule_type="unit"
+):
+
+# select_top_rules 인터페이스
+def select_top_rules(
+    service_db_info, file_server_host, file_server_port,
+    result_file_path_faf, done_file_path_faf, json_obj
+):
+
+def create_dummy_rules_combination()
+
+def fit_rule_optimizer_ga():
+    # ruleoptimizer.py에 작성되었던 체크로직 이관
+    # fitness function 안에서 Exception이 raise되면 프로세스 멈춤
+    # 1. load model from file-service
+    # 2. do something with loaded model
+    # 3. rule optimizer(GA) 저장
+    # make monotonicity values to values for display
+
+def fit_rule_optimizer_greedy():
+    # 1. load model from file-service
+    # 2. do something with loaded model
+    # 3. rule optimizer(Greedy) 저장
+    # make monotonicity values to values for display
+
+# predict rule optimizer
+def predict_rule_optimizer(
+    service_db_info, file_server_host, file_server_port,
+    numpy_use_32bit_float_precision,
+    result_file_path_faf, done_file_path_faf, json_obj
+):
+    # 1. load model from file-service (rule_finder / rule_optimizer)
+    # 1) finder
+    # 2) optimizer
+    # make monotonicity values to values for display
+
+-------------------------------------------------------------------
+stg_executor.py
+
+def init_output_parameter(service_db_info, file_server_host, file_server_port, json_obj):
+
+def save_stg_obj(service_db_info, json_obj):
+
+def save_stg_obj_with_properties(service_db_info, json_obj):
+
+def update_stg_description(service_db_info, json_obj):
+
+def update_stg_properties(service_db_info, json_obj):
+
+def get_stg_history_properties(service_db_info, auth_key, process_seq, stg_id):
+
+def get_stg_history_object(service_db_info, auth_key, process_seq, stg_id, stg_seq):
+
+def get_stg_history(service_db_info, auth_key, process_seq, stg_id):
+
+def get_mart_data_joined_with_output_parameter():
+
+def delete_stg(service_db_info, auth_key, process_seq, stg_id, stg_seq):
+
+def get_number_of_rows_in_node():
+    # get number of rows in node
+
+def get_mart_data_joined_with_output_parameter_and_condition():
+    # disable exporting data when app is for external use and user auth level is 2 or 3
+    # Final export columns
+    # Get Info
+    # check local Windows version
+
+

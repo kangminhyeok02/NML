@@ -1,0 +1,199 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775651878029,
+  "projectRoot": "C:\\Users\\rkdal\\NML_clone",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs"
+    ],
+    "gitBranches": {
+      "defaultBranch": "master",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 19,
+      "lastAccessed": 1775651877936,
+      "keyFiles": [
+        "automl_executor.md",
+        "base_executor.md",
+        "data_analysis_executor.md",
+        "executors_ml_guide.md",
+        "executor_code_deep_dive.md"
+      ]
+    },
+    "executors": {
+      "path": "executors",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775651877937,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "executors\\ml\\NML.txt",
+      "accessCount": 13,
+      "lastAccessed": 1775682335758,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\h2o_model_executor.py",
+      "accessCount": 5,
+      "lastAccessed": 1775683760215,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\base_executor.py",
+      "accessCount": 4,
+      "lastAccessed": 1775653470328,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\python_model_executor.py",
+      "accessCount": 4,
+      "lastAccessed": 1775682447312,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\predict_executor.py",
+      "accessCount": 4,
+      "lastAccessed": 1775683234323,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\python_h2o_model_executor.py",
+      "accessCount": 4,
+      "lastAccessed": 1775683490975,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\mart_executor.py",
+      "accessCount": 3,
+      "lastAccessed": 1775653533381,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\automl_executor.py",
+      "accessCount": 3,
+      "lastAccessed": 1775653562605,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\rl_executor.py",
+      "accessCount": 3,
+      "lastAccessed": 1775682615779,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\rulesearch_executor.py",
+      "accessCount": 3,
+      "lastAccessed": 1775682777229,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\scorecard_executor.py",
+      "accessCount": 3,
+      "lastAccessed": 1775682976236,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\pretrained_executor.py",
+      "accessCount": 3,
+      "lastAccessed": 1775683027174,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\process_executor.py",
+      "accessCount": 2,
+      "lastAccessed": 1775653429541,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\stg_executor.py",
+      "accessCount": 2,
+      "lastAccessed": 1775682447117,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\export_executor.py",
+      "accessCount": 2,
+      "lastAccessed": 1775683796305,
+      "type": "file"
+    },
+    {
+      "path": "docs\\overall_flow.md",
+      "accessCount": 1,
+      "lastAccessed": 1775651943292,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\r_model_executor.py",
+      "accessCount": 1,
+      "lastAccessed": 1775652044044,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\report_executor.py",
+      "accessCount": 1,
+      "lastAccessed": 1775652044207,
+      "type": "file"
+    },
+    {
+      "path": "docs\\stg_executor.md",
+      "accessCount": 1,
+      "lastAccessed": 1775652050352,
+      "type": "file"
+    },
+    {
+      "path": "docs\\r_model_executor.md",
+      "accessCount": 1,
+      "lastAccessed": 1775652084507,
+      "type": "file"
+    },
+    {
+      "path": "docs\\report_executor.md",
+      "accessCount": 1,
+      "lastAccessed": 1775652103548,
+      "type": "file"
+    },
+    {
+      "path": "executors\\ml\\data_analysis_executor.py",
+      "accessCount": 1,
+      "lastAccessed": 1775652359694,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 1,
+      "lastAccessed": 1775652437042,
+      "type": "directory"
+    }
+  ],
+  "userDirectives": []
+}
