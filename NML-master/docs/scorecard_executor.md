@@ -1,18 +1,23 @@
-# scorecard_executor.py — 신용 스코어카드 모델
+# scorecard_executor.py — 신용평가 스코어카드 모델
+
+**파일:** `executors/ml/scorecard_executor.py`  
+**클래스:** `ScorecardExecutor(BaseExecutor)`
 
 ## 개요
 
-금융/리스크 도메인의 전통적 모델링 방식인 신용평가 스코어카드를 생성하는 executor.  
-변수 구간화(Binning) → WOE 변환 → IV 산출 → 로지스틱 회귀 → 점수 스케일링 순으로 동작한다.
+금융/리스크 도메인에서 가장 전통적인 모델링 방식.  
+변수 구간화(binning) → WOE 변환 → IV 산출 → 로지스틱 회귀 → PDO 점수 스케일링  
+순서로 스코어카드를 생성한다.
 
 ```
-원시 변수
-    ↓ Binning (qcut / cut)
-    ↓ WOE 변환
-    ↓ IV 필터 (IV < threshold 제거)
-    ↓ StandardScaler + LogisticRegression
-    ↓ PDO 스케일링 → 스코어카드 포인트 테이블
-    ↓ 개인별 점수 = Σ(변수별 구간 포인트)
+학습 데이터 로드
+    ↓ _calc_woe() : 수치형 변수 분위수 binning + WOE/IV 계산
+    ↓ IV 필터 : iv_threshold 미만 변수 제거
+    ↓ _apply_woe() : 선택 변수에 WOE 값 적용
+    ↓ StandardScaler + LogisticRegression 학습
+    ↓ _build_scorecard() : PDO 기반 점수 스케일링 → 스코어카드 테이블
+    ↓ _score_data() → _evaluate_scorecard() : 성능 평가
+    ↓ 결과 저장 (scorecard JSON + meta JSON)
 ```
 
 ---
@@ -24,147 +29,147 @@
 | `train_path` | ✅ | `str` | 학습 데이터 경로 (.parquet) |
 | `target_col` | ✅ | `str` | 타깃 컬럼 (1=Bad, 0=Good) |
 | `model_id` | ✅ | `str` | 모델 저장 식별자 |
-| `feature_cols` | ✅ | `list` | 스코어카드 후보 변수 목록 |
+| `feature_cols` | ✅ | `list` | 스코어카드에 사용할 변수 목록 |
 | `valid_path` | ❌ | `str` | 검증 데이터 경로 |
-| `n_bins` | ❌ | `int` | Binning 구간 수 (기본: `10`) |
+| `n_bins` | ❌ | `int` | binning 구간 수 (기본: `10`) |
 | `min_bin_rate` | ❌ | `float` | 최소 bin 비율 (기본: `0.05`) |
-| `iv_threshold` | ❌ | `float` | IV 필터 임계값 (기본: `0.02`) |
+| `iv_threshold` | ❌ | `float` | IV 필터 기준값 (기본: `0.02`) |
 | `base_score` | ❌ | `int` | 기준 점수 (기본: `600`) |
-| `pdo` | ❌ | `int` | Points to Double the Odds (기본: `20`) |
+| `pdo` | ❌ | `int` | PDO — odds 2배당 점수 변화량 (기본: `20`) |
 
 ---
 
-## 메서드 상세
+## 내부 메서드
 
-### `_calc_woe(x, y, n_bins)` → `pd.DataFrame`
+### `_calc_woe(series, target, n_bins)` → `pd.DataFrame`
 
-수치형 변수에 대한 WOE/IV 테이블을 생성한다.
+수치형 변수를 `n_bins` 구간으로 분위수 binning하고 WOE/IV를 계산한다.
 
 ```
-① pd.qcut(q=n_bins) 시도 → 실패 시 pd.cut(bins=n_bins)
-② 구간별: Good/Bad 분포 계산
-③ WOE = ln(Distribution_Good / Distribution_Bad)
-④ IV  = (Dist_Good - Dist_Bad) × WOE
+WOE = ln(Distribution_Good / Distribution_Bad)
+IV  = (Distribution_Good - Distribution_Bad) × WOE
+변수 IV = Σ(구간별 IV)
 ```
 
-| 출력 컬럼 | 설명 |
-|----------|------|
-| `bin` | 구간 레이블 |
-| `count` | 구간 내 전체 건수 |
-| `good` / `bad` | Good/Bad 건수 |
-| `bad_rate` | 구간 내 불량률 |
-| `WOE` | Weight of Evidence |
-| `IV` | Information Value (구간) |
-
-**IV 해석 기준:**
-
-| IV 범위 | 예측력 |
-|---------|--------|
-| < 0.02 | 무의미 |
-| 0.02 ~ 0.1 | 약함 |
-| 0.1 ~ 0.3 | 중간 |
-| > 0.3 | 강함 |
+반환 컬럼: `bin, count, good_cnt, bad_cnt, WOE, IV`
 
 ---
 
 ### `_apply_woe(df, selected_cols, woe_tables, target_col)` → `pd.DataFrame`
 
-선택된 변수에 WOE 값을 매핑하여 로지스틱 회귀 입력 데이터를 생성한다.
-
-```python
-bins = pd.qcut(df[col], q=10, duplicates="drop")
-result[col] = bins.astype(str).map(woe_map).fillna(0)
-```
+선택된 변수에 WOE 값을 적용하여 WOE-transformed DataFrame을 반환한다.
 
 ---
 
 ### `_build_scorecard(lr, scaler, woe_tables, selected_cols, base_score, pdo)` → `pd.DataFrame`
 
-로지스틱 회귀 계수를 PDO 방식으로 점수 포인트로 변환한다.
+로지스틱 회귀 계수와 PDO 공식을 사용하여 스코어카드 포인트 테이블을 생성한다.
 
 ```
-factor = PDO / ln(2)
-offset = base_score - factor × ln(1)
-
-구간 포인트 = -(coef / scale) × WOE × factor
+Factor = pdo / ln(2)
+Offset = base_score - Factor × ln(base_odds)
+점수 = Offset + Factor × (β₀/n + βᵢ × WOEᵢ)
 ```
 
-**스코어카드 테이블 예시:**
-
-| variable | bin | WOE | points |
-|----------|-----|-----|--------|
-| income | (0, 3000] | 0.85 | 15 |
-| income | (3000, 6000] | 0.12 | 3 |
-| age | (18, 30] | -0.62 | -11 |
+반환 컬럼: `variable, bin, WOE, score_point`
 
 ---
 
 ### `_score_data(df, scorecard, selected_cols, woe_tables)` → `pd.Series`
 
-각 개인의 점수 = 해당 구간 포인트의 합산.
-
-```python
-개인점수 = Σ(변수별 해당 bin의 points)
-```
+고객별 총 스코어를 산출한다 (각 변수 구간 점수의 합).
 
 ---
 
 ### `_evaluate_scorecard(scores, y)` → `dict`
 
-| 지표 | 산출 방식 |
+| 지표 | 산출 방법 |
 |------|----------|
 | `auc` | `roc_auc_score(y, scores)` |
 | `gini` | `2 × AUC - 1` |
-| `ks` | `max(cum_bad_rate - cum_good_rate)` |
+| `ks` | KS 통계량 (누적 Good/Bad 분포 최대 차이) |
 
 ---
 
-## 실행 흐름
+## execute() 진행률
 
-```
-1. train_path / valid_path 로드                        [progress 15%]
-2. 변수별 WOE/IV 계산 (_calc_woe)                     [progress 40%]
-3. IV 필터링 (iv < iv_threshold 제거)
-4. WOE 변환 (_apply_woe)
-5. StandardScaler + LogisticRegression 학습            [progress 65%]
-6. PDO 스케일링 → 스코어카드 포인트 테이블 (_build_scorecard)
-7. 개인별 점수 산출 (_score_data)
-8. KS / AUC / Gini 평가 (_evaluate_scorecard)          [progress 85%]
-9. 결과 저장
-   - models/{model_id}_scorecard.json
-   - models/{model_id}_train_scores.parquet
-```
+| 단계 | progress |
+|------|----------|
+| 데이터 로드 완료 | 15% |
+| WOE/IV 계산 완료 | 40% |
+| 로지스틱 회귀 학습 완료 | 65% |
+| 성능 평가 완료 | 85% |
+| 저장 완료 | 95% |
 
 ---
 
-## 출력 결과
+## 반환값
 
-**스코어카드 JSON:** `models/{model_id}_scorecard.json`
-```json
+```python
 {
-  "scorecard":     [{"variable": "income", "bin": "(0,3000]", "WOE": 0.85, "points": 15}, ...],
-  "woe_tables":    {"income": [...], "age": [...]},
-  "iv_dict":       {"income": 0.342, "age": 0.187, "debt_ratio": 0.089},
-  "selected_cols": ["income", "age"],
-  "metrics": {
-    "auc": 0.8123, "gini": 0.6246, "ks": 0.4812,
-    "valid": {"auc": 0.7981, "gini": 0.5962, "ks": 0.4631}
-  },
-  "base_score": 600,
-  "pdo": 20
+    "status": "COMPLETED",
+    "result": {
+        "model_id":       "scorecard_loan_v1",
+        "selected_cols":  ["income", "debt_ratio", "overdue_cnt"],
+        "iv_dict":        {"income": 0.342, "debt_ratio": 0.218, "overdue_cnt": 0.156},
+        "metrics": {
+            "train": {"auc": 0.812, "gini": 0.624, "ks": 0.431},
+            "valid": {"auc": 0.798, "gini": 0.596, "ks": 0.412},
+        },
+        "base_score":     600,
+        "pdo":            20,
+        "scorecard_path": "models/scorecard_loan_v1_scorecard.json",
+        "meta_path":      "models/scorecard_loan_v1_meta.json",
+    },
+    "message": "스코어카드 학습 완료  변수=3개  AUC=0.812",
+    "job_id":  str,
+    "elapsed_sec": float,
 }
 ```
 
-**학습 점수 파일:** `models/{model_id}_train_scores.parquet`
+---
+
+## 출력 파일
+
+| 파일 | 경로 | 내용 |
+|------|------|------|
+| 스코어카드 JSON | `models/{model_id}_scorecard.json` | scorecard, woe_tables, iv_dict, metrics |
+| 메타 정보 JSON | `models/{model_id}_meta.json` | selected_cols, metrics, base_score, pdo |
+
+`_scorecard.json` 구조:
+```json
+{
+  "scorecard": [
+    {"variable": "income", "bin": "(50000, 100000]", "WOE": 0.42, "score_point": 18},
+    {"variable": "income", "bin": "(100000, inf]",   "WOE": 0.91, "score_point": 32}
+  ],
+  "woe_tables":    {"income": [...], "debt_ratio": [...]},
+  "iv_dict":       {"income": 0.342, "debt_ratio": 0.218},
+  "selected_cols": ["income", "debt_ratio", "overdue_cnt"],
+  "metrics":       {"train": {"auc": 0.812}, "valid": {"auc": 0.798}},
+  "base_score":    600,
+  "pdo":           20
+}
+```
 
 ---
 
-## PredictExecutor와의 연계
+## 사용 예시
 
-스코어카드 예측은 `PredictExecutor`를 통하지 않고  
-`_score_data()`를 직접 재호출하거나, 스코어카드 JSON을 운영계에 배포한다.
+```python
+config = {
+    "job_id":       "scorecard_001",
+    "train_path":   "mart/loan_mart_train.parquet",
+    "valid_path":   "mart/loan_mart_valid.parquet",
+    "target_col":   "default",
+    "model_id":     "scorecard_loan_v1",
+    "feature_cols": ["income", "debt_ratio", "overdue_cnt", "credit_limit", "age"],
+    "n_bins":       10,
+    "iv_threshold": 0.02,
+    "base_score":   600,
+    "pdo":          20,
+}
 
-```
-스코어카드 JSON 배포 → 운영계에서 룰 기반 점수 계산
-(H2O / Python 모델 파일 불필요 → 가장 투명한 배포 방식)
+from executors.ml.scorecard_executor import ScorecardExecutor
+result = ScorecardExecutor(config=config).run()
 ```

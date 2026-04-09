@@ -1,19 +1,22 @@
 # rulesearch_executor.py — 설명 가능한 규칙 탐색
 
+**파일:** `executors/ml/rulesearch_executor.py`  
+**클래스:** `RuleSearchExecutor(BaseExecutor)`
+
 ## 개요
 
-의사결정트리, 연관규칙, WOE 구간 분석으로 if-then 형태의 설명 가능한 규칙을 발굴하는 executor.  
+의사결정트리 또는 연관규칙 방법으로 if-then 규칙 후보를 발굴하는 executor.  
 신용/리스크 도메인에서 정책 룰 설계나 해석 가능한 분류 기준을 만들 때 활용된다.
 
----
-
-## 탐색 방식 (`method`)
-
-| `method` | 알고리즘 | 출력 형태 |
-|---|---|---|
-| `decision_tree` | CART 의사결정트리 경로 추출 | `if A<=x AND B>y → bad_rate` |
-| `association` | FP-Growth 연관규칙 | `if A∈[범위] AND B∈[범위] → confidence` |
-| `woe_rule` | WOE 기반 구간별 bad rate | `if col ∈ bin → bad_rate` |
+```
+입력 데이터 로드
+    ↓ method에 따라 규칙 탐색
+      ├── decision_tree  → sklearn 트리 경로에서 규칙 추출
+      ├── association    → Apriori/FP-Growth 연관규칙 탐색
+      └── woe_rule       → WOE 기반 변수 구간 규칙 탐색
+    ↓ min_bad_rate 필터 + lift/bad_rate 내림차순 정렬
+    ↓ 상위 top_n개 선택 → analysis/{output_id}_rules.json 저장
+```
 
 ---
 
@@ -24,37 +27,38 @@
 | `source_path` | ✅ | `str` | 입력 데이터 경로 (.parquet) |
 | `target_col` | ✅ | `str` | 타깃 컬럼 (1=Bad/Event) |
 | `output_id` | ✅ | `str` | 결과 저장 식별자 |
-| `method` | ❌ | `str` | 탐색 방식 (기본: `"decision_tree"`) |
-| `feature_cols` | ❌ | `list` | 탐색 대상 변수 (없으면 타깃 외 전체) |
+| `method` | ❌ | `str` | `"decision_tree"` \| `"association"` \| `"woe_rule"` (기본: `"decision_tree"`) |
+| `feature_cols` | ❌ | `list` | 탐색 대상 변수 목록 (없으면 타깃 외 전체) |
 | `max_depth` | ❌ | `int` | 트리 최대 깊이 (기본: `4`) |
 | `min_support` | ❌ | `float` | 연관규칙 최소 지지도 (기본: `0.05`) |
 | `min_confidence` | ❌ | `float` | 연관규칙 최소 신뢰도 (기본: `0.3`) |
 | `min_bad_rate` | ❌ | `float` | 규칙 필터 최소 bad rate (기본: `0.1`) |
-| `top_n` | ❌ | `int` | 상위 N개 규칙 반환 (기본: `50`) |
+| `top_n` | ❌ | `int` | 반환할 상위 규칙 수 (기본: `50`) |
 
 ---
 
-## 탐색 메서드 상세
+## 탐색 방식별 상세
 
 ### `_search_tree_rules(df, feature_cols, target, cfg)` → `list`
 
-```
-① DecisionTreeClassifier(max_depth=4, min_samples_leaf=50) 학습
-② 트리 구조 순회 (_recurse):
-   - 분기 노드: 조건 스택에 "feature <= threshold" 추가
-   - 리프 노드: 조건 스택 → 규칙 생성
+sklearn `DecisionTreeClassifier`를 학습한 뒤 `export_text()`로 경로를 추출하여  
+if-then 규칙 형태로 변환한다.
+
+```python
+dt = DecisionTreeClassifier(max_depth=cfg.get("max_depth", 4), random_state=42)
+dt.fit(df[feature_cols], df[target])
+text = export_text(dt, feature_names=feature_cols)
+# 각 리프 노드의 경로 → 규칙 문자열 추출
 ```
 
-**규칙 예시:**
+규칙 구조:
 ```python
 {
-    "condition_str": "debt_ratio > 0.7 AND income <= 3000",
-    "conditions":    ["debt_ratio > 0.7", "income <= 3000"],
-    "support":       0.0823,
-    "bad_count":     412,
-    "total_count":   823,
-    "bad_rate":      0.5006,
-    "lift":          3.21,
+    "rule":      "income <= 50000 AND overdue_cnt > 2",
+    "support":   0.082,    # 전체 중 해당 규칙 해당 비율
+    "bad_rate":  0.412,    # 해당 구간의 bad rate
+    "lift":      2.31,     # bad_rate / 전체 bad_rate
+    "count":     8200,
 }
 ```
 
@@ -62,75 +66,93 @@
 
 ### `_search_association_rules(df, feature_cols, target, cfg)` → `list`
 
-```
-① 수치형 변수 → qcut(q=5) → 이진 인코딩 (pd.get_dummies)
-② FP-Growth(min_support) → 빈발 항목집합
-③ association_rules(min_confidence) → 연관규칙
-④ consequent에 "{target}=1" 포함 규칙만 필터
+`mlxtend`의 FP-Growth 알고리즘으로 연관규칙을 탐색한다.
+
+```python
+from mlxtend.frequent_patterns import fpgrowth, association_rules
+freq_items = fpgrowth(df_encoded, min_support=min_support, use_colnames=True)
+rules = association_rules(freq_items, metric="confidence", min_threshold=min_confidence)
 ```
 
-**출력:**
-```python
-{
-    "condition_str": "income∈(0,3000] AND age∈(18,30]",
-    "support":       0.0621,
-    "bad_rate":      0.4823,  # = confidence
-    "lift":          3.12,
-}
-```
+규칙 구조에 `antecedents`, `consequents`, `support`, `confidence`, `lift` 포함.
 
 ---
 
 ### `_search_woe_rules(df, feature_cols, target, cfg)` → `list`
 
-```
-변수별 qcut(q=10) → 구간별 bad_rate, lift 산출
-단변량 규칙 → 가장 단순하고 해석하기 쉬움
-```
+각 변수의 WOE 구간 중 bad_rate가 높은 구간을 단순 규칙으로 추출한다.
 
-**Lift = bad_rate(구간) / bad_rate(전체)**  
-Lift > 1이면 전체 평균보다 위험한 구간.
-
----
-
-## 규칙 후처리
-
-1. `bad_rate < min_bad_rate` 규칙 제거
-2. `lift` 또는 `bad_rate` 기준 내림차순 정렬
-3. 상위 `top_n`개만 반환
-
----
-
-## 실행 흐름
-
-```
-1. source_path 데이터 로드
-2. feature_cols 확정                                 [progress 20%]
-3. method별 규칙 탐색                               [progress 80%]
-4. min_bad_rate 필터 → lift/bad_rate 정렬 → top_n 선택
-5. analysis/{output_id}_rules.json 저장
+```python
+# 변수별 분위수 binning → WOE 계산 → bad_rate 기준 필터
+{
+    "rule":     "debt_ratio > 0.8",
+    "bad_rate": 0.387,
+    "lift":     2.18,
+    "woe":      1.42,
+    "iv":       0.089,
+}
 ```
 
 ---
 
-## 출력 결과
+## 규칙 필터 및 정렬
 
-**저장 경로:** `analysis/{output_id}_rules.json`
+탐색 완료 후 공통 후처리:
+
+```python
+rules = [r for r in rules if r.get("bad_rate", 0) >= min_bad_rate]
+rules = sorted(rules, key=lambda x: x.get("lift", x.get("bad_rate", 0)), reverse=True)
+rules = rules[:top_n]
+```
+
+---
+
+## execute() 진행률
+
+| 단계 | progress |
+|------|----------|
+| 데이터 로드 완료 | 20% |
+| 규칙 탐색 완료 | 80% |
+| 필터·정렬·저장 완료 | 95% |
+
+---
+
+## 반환값
+
+```python
+{
+    "status": "COMPLETED",
+    "result": {
+        "output_path": "analysis/loan_rules_eda_rules.json",
+        "total_rules": 42,
+        "top_rule": {
+            "rule":     "overdue_cnt > 3 AND debt_ratio > 0.7",
+            "bad_rate": 0.623,
+            "lift":     3.48,
+            "support":  0.031,
+        },
+    },
+    "message": "규칙 탐색 완료  method=decision_tree  rules=42개",
+    "job_id":  str,
+    "elapsed_sec": float,
+}
+```
+
+---
+
+## 출력 파일
+
+| 파일 | 경로 |
+|------|------|
+| 규칙 결과 JSON | `analysis/{output_id}_rules.json` |
 
 ```json
 {
-  "output_id":   "credit_rules_v1",
+  "output_id":   "loan_rules_eda",
   "method":      "decision_tree",
-  "total_rules": 47,
+  "total_rules": 42,
   "rules": [
-    {
-      "condition_str": "debt_ratio > 0.7 AND income <= 3000",
-      "support":       0.0823,
-      "bad_rate":      0.5006,
-      "lift":          3.21,
-      "bad_count":     412,
-      "total_count":   823
-    },
+    {"rule": "overdue_cnt > 3 AND debt_ratio > 0.7", "bad_rate": 0.623, "lift": 3.48},
     ...
   ]
 }
@@ -140,27 +162,31 @@ Lift > 1이면 전체 평균보다 위험한 구간.
 
 ## StrategyExecutor와의 연계
 
-발굴된 규칙을 `StrategyExecutor`의 `override_rules`로 활용하면  
-고위험 구간에 대한 자동 거절 정책을 구현할 수 있다.
+```
+RuleSearchExecutor
+    → 규칙 목록 (bad_rate, lift 기준 정렬)
 
-```python
-override_rules = [
-    {
-        "condition": "debt_ratio > 0.7 and income <= 3000",
-        "decision":  "REJECT",
-        "reason":    "고부채비율+저소득 고위험 구간"
-    }
-]
+StrategyExecutor (override_rules에 상위 규칙 적용)
+    → 고위험 구간 자동 거절
 ```
 
 ---
 
-## 세 방식 비교
+## 사용 예시
 
-| 항목 | `decision_tree` | `association` | `woe_rule` |
-|------|----------------|---------------|-----------|
-| 다변량 규칙 | ✅ (다변량 조건) | ✅ (다변량 조건) | ❌ (단변량) |
-| 해석 용이성 | 높음 | 중간 | 매우 높음 |
-| 계산 속도 | 빠름 | 느림 (대용량) | 빠름 |
-| 추가 라이브러리 | 없음 | mlxtend | 없음 |
-| 권장 상황 | 다변량 상호작용 탐색 | 장바구니 분석 유사 문제 | 변수별 위험 구간 확인 |
+```python
+config = {
+    "job_id":        "rulesearch_001",
+    "source_path":   "mart/loan_mart_train.parquet",
+    "target_col":    "default",
+    "output_id":     "loan_rules_v1",
+    "method":        "decision_tree",
+    "feature_cols":  ["overdue_cnt", "debt_ratio", "income", "age"],
+    "max_depth":     4,
+    "min_bad_rate":  0.15,
+    "top_n":         30,
+}
+
+from executors.ml.rulesearch_executor import RuleSearchExecutor
+result = RuleSearchExecutor(config=config).run()
+```

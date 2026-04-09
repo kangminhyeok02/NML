@@ -1,13 +1,28 @@
 # export_executor.py — 결과 외부 내보내기
 
+**파일:** `executors/ml/export_executor.py`  
+**클래스:** `ExportExecutor(BaseExecutor)`
+
 ## 개요
 
-분석/예측 결과를 파일, DB, REST API 등 외부로 내보내는 executor.  
-파이프라인 마지막 단계에서 최종 결과를 운영계·데이터웨어하우스·외부 시스템으로 전달한다.
+분석/예측 결과를 외부로 내보내는 파이프라인 최종 executor.  
+파일 저장, DB 적재, API 전송 세 가지 대상을 지원한다.
+
+```
+원본 데이터 로드 (.parquet)
+    ↓ 컬럼 선택 (columns) + 이름 변경 (rename_map)
+    ↓ export_type에 따라 실행
+      ├── file → CSV / Excel / JSON / Parquet 저장
+      ├── db   → INSERT / UPSERT / TRUNCATE-INSERT
+      └── api  → REST POST (배치 전송)
+    ↓ exports/{output_id}_summary.json 저장
+```
 
 ---
 
-## config 파라미터 (공통)
+## config 파라미터
+
+### 공통
 
 | 키 | 필수 | 타입 | 설명 |
 |----|------|------|------|
@@ -18,113 +33,110 @@
 | `rename_map` | ❌ | `dict` | 컬럼 이름 변경 `{"original": "new_name"}` |
 | `date_format` | ❌ | `str` | 날짜 포맷 (기본: `"%Y-%m-%d"`) |
 
----
+### `file` 모드
 
-## export_type별 추가 파라미터
+| 키 | 필수 | 타입 | 설명 |
+|----|------|------|------|
+| `file_format` | ❌ | `str` | `"csv"` \| `"excel"` \| `"json"` \| `"parquet"` (기본: `"csv"`) |
+| `output_path` | ❌ | `str` | 저장 경로 (기본: `exports/{output_id}.{format}`) |
 
-### `"file"` 모드
+### `db` 모드
 
-| 키 | 필수 | 설명 |
-|----|------|------|
-| `file_format` | ❌ | `"csv"` \| `"excel"` \| `"json"` \| `"parquet"` (기본: `"csv"`) |
-| `output_path` | ❌ | 저장 경로 (기본: `exports/{output_id}.{format}`) |
+| 키 | 필수 | 타입 | 설명 |
+|----|------|------|------|
+| `table_name` | ✅ | `str` | 대상 테이블명 |
+| `write_mode` | ✅ | `str` | `"append"` \| `"replace"` \| `"upsert"` |
+| `key_cols` | upsert 필수 | `list` | upsert 키 컬럼 목록 |
 
-| 포맷 | 저장 메서드 | 특이사항 |
-|------|-----------|---------|
-| `csv` | `df.to_csv()` | date_format 적용 |
-| `excel` | `df.to_excel()` | openpyxl 엔진 |
-| `json` | `df.to_json(orient="records")` | ensure_ascii=False, indent=2 |
-| `parquet` | `df.to_parquet()` | 가장 효율적, 대용량 권장 |
+### `api` 모드
 
----
-
-### `"db"` 모드
-
-| 키 | 필수 | 설명 |
-|----|------|------|
-| `table_name` | ✅ | 대상 테이블명 |
-| `write_mode` | ❌ | `"append"` \| `"replace"` \| `"upsert"` (기본: `"append"`) |
-| `key_cols` | ❌* | upsert 키 컬럼 목록 (\* upsert 시 필수) |
-
-**write_mode 동작:**
-
-| 모드 | 동작 |
-|------|------|
-| `append` | 기존 테이블에 추가 (`if_exists="append"`) |
-| `replace` | 테이블 삭제 후 재생성 (`if_exists="replace"`) |
-| `upsert` | 키 기준 DELETE → INSERT (MariaDB/MySQL 호환) |
-
-**`_upsert_to_db` 구현:**
-```python
-# 키 값별 기존 데이터 삭제
-DELETE FROM {table} WHERE key1=:k1 AND key2=:k2
-
-# 전체 재삽입
-df.to_sql(table, if_exists="append", chunksize=10_000)
-```
+| 키 | 필수 | 타입 | 설명 |
+|----|------|------|------|
+| `endpoint` | ✅ | `str` | POST 대상 URL |
+| `batch_size` | ❌ | `int` | 배치 크기 (기본: `1000`) |
+| `headers` | ❌ | `dict` | 요청 헤더 |
 
 ---
 
-### `"api"` 모드
+## 내부 메서드
 
-| 키 | 필수 | 설명 |
-|----|------|------|
-| `endpoint` | ✅ | POST 대상 URL |
-| `batch_size` | ❌ | 배치 크기 (기본: `1000`) |
-| `headers` | ❌ | 요청 헤더 (기본: `{"Content-Type": "application/json"}`) |
+### `_export_to_file(df, cfg)` → `dict`
 
 ```python
-# 배치 전송 루프
-records = df.to_dict(orient="records")
-for batch in chunks(records, batch_size):
-    resp = requests.post(endpoint, json=batch, headers=headers, timeout=30)
-    if resp.status_code not in (200, 201, 202):
-        raise ExecutorException(...)
+if file_format == "csv":
+    df.to_csv(full_path, index=False, date_format=date_fmt)
+elif file_format == "excel":
+    df.to_excel(full_path, index=False, engine="openpyxl")
+elif file_format == "json":
+    df.to_json(full_path, orient="records", force_ascii=False, indent=2)
+elif file_format == "parquet":
+    df.to_parquet(full_path, index=False)
 ```
 
 ---
 
-## 실행 흐름
+### `_export_to_db(df, cfg)` → `dict`
 
+```python
+# append: DataFrame.to_sql(if_exists="append")
+# replace: DataFrame.to_sql(if_exists="replace")
+# upsert: DELETE WHERE key IN (...) → INSERT (MariaDB/MySQL 호환)
 ```
-1. source_path 데이터 로드                           [progress 20%]
-2. columns 선택 + rename_map 적용                   [progress 40%]
-3. export_type별 내보내기                            [progress 90%]
-   - file: 파일 저장
-   - db:   DB 적재 (chunksize=10,000)
-   - api:  배치 POST 전송
-4. exports/{output_id}_summary.json 저장
-```
+
+upsert는 `key_cols` 기준으로 기존 행 삭제 후 신규 INSERT한다.
 
 ---
 
-## 출력 결과
+### `_export_to_api(df, cfg)` → `dict`
 
-**요약 파일:** `exports/{output_id}_summary.json`
+```python
+for batch in chunks(df, batch_size):
+    payload = batch.to_dict(orient="records")
+    resp = requests.post(endpoint, json=payload, headers=headers)
+    # 실패 시 ExecutorException
+```
 
-```json
+기본 `batch_size=1000`건씩 분할 POST.
+
+---
+
+## execute() 진행률
+
+| 단계 | progress |
+|------|----------|
+| 데이터 로드·컬럼처리 완료 | 40% |
+| export 실행 완료 | 90% |
+| 요약 저장 완료 | 95% |
+
+---
+
+## 반환값
+
+```python
 {
-  "output_id":     "credit_result_20260407",
-  "export_type":   "file",
-  "exported_rows": 100000,
-  "exported_cols": 8,
-  "file_path":     "/data/exports/credit_result_20260407.csv",
-  "file_format":   "csv"
+    "status": "COMPLETED",
+    "result": {
+        "output_id":     "loan_export_202312",
+        "export_type":   "db",
+        "exported_rows": 50000,
+        "exported_cols": 8,
+        "table_name":    "ML_LOAN_DECISION",
+        "write_mode":    "upsert",
+    },
+    "message": "Export 완료  type=db  50,000행",
+    "job_id":  str,
+    "elapsed_sec": float,
 }
 ```
 
 ---
 
-## 파이프라인 위치
+## 출력 파일
 
-```
-PredictExecutor / ScorecardExecutor
-    ↓ 점수·등급 포함 parquet
-StrategyExecutor (선택)
-    ↓ 의사결정 포함 parquet
-ExportExecutor
-    ↓ CSV / DB / API로 최종 전달
-```
+| 파일 | 경로 |
+|------|------|
+| 내보낸 파일 (file 모드) | `exports/{output_id}.{format}` |
+| 요약 JSON | `exports/{output_id}_summary.json` |
 
 ---
 
@@ -133,13 +145,27 @@ ExportExecutor
 ```python
 # DB upsert 예시
 config = {
-    "source_path": "strategy/loan_result.parquet",
+    "job_id":      "export_001",
+    "source_path": "strategy/loan_stg_202312_result.parquet",
     "export_type": "db",
-    "output_id":   "loan_20260407",
-    "table_name":  "ML_SCORE_RESULT",
+    "output_id":   "loan_export_202312",
+    "table_name":  "ML_LOAN_DECISION",
     "write_mode":  "upsert",
-    "key_cols":    ["CUST_ID", "BASE_DT"],
-    "columns":     ["CUST_ID", "BASE_DT", "score", "grade", "decision"],
-    "rename_map":  {"score": "ML_SCORE", "grade": "ML_GRADE"},
+    "key_cols":    ["cust_id", "base_dt"],
+    "columns":     ["cust_id", "base_dt", "ml_score", "grade", "decision"],
+    "rename_map":  {"ml_score": "ML_SCORE", "grade": "ML_GRADE"},
+}
+
+from executors.ml.export_executor import ExportExecutor
+result = ExportExecutor(config=config, db_session=session).run()
+
+# CSV 파일 저장 예시
+config_csv = {
+    "job_id":      "export_csv_001",
+    "source_path": "predict/loan_pred_202312_result.parquet",
+    "export_type": "file",
+    "output_id":   "loan_pred_csv",
+    "file_format": "csv",
+    "output_path": "exports/loan_pred_202312.csv",
 }
 ```

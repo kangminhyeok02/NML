@@ -1,20 +1,40 @@
 # pretrained_executor.py — 사전 학습 모델 추론
 
+**파일:** `executors/ml/pretrained_executor.py`  
+**클래스:** `PretrainedExecutor(BaseExecutor)`
+
 ## 개요
 
-재학습 없이 기존에 학습된 모델을 로드하여 임베딩 추출, 피처 생성, 최종 예측을 수행하는 executor.  
-내부 검증 완료 모델의 운영 배포, 외부 공개 모델 활용, A/B 테스트에 활용된다.
+재학습 없이 기존 완성 모델을 로드하여 임베딩 추출, 피처 생성,  
+또는 최종 예측을 수행하는 executor.
+
+**사용 사례:**
+- 내부 리스크 팀이 이미 학습/검증한 모델을 운영에 배포
+- 외부 공개 pretrained 모델(ONNX, HuggingFace) 활용
+- Transfer Learning의 feature extractor 단계로 활용
+- A/B 테스트를 위한 챔피언/챌린저 모델 동시 배포
+
+```
+모델 메타 JSON 로드 (_load_meta)
+    ↓ 입력 데이터 로드
+    ↓ model_format에 따라 추론
+      ├── pickle   → _infer_pickle()
+      ├── onnx     → _infer_onnx()
+      ├── h2o      → _infer_h2o()
+      └── hugging  → _infer_hugging()
+    ↓ predict/{output_id}_pretrained.parquet 저장
+```
 
 ---
 
 ## 지원 모델 포맷 (`model_format`)
 
-| `model_format` | 확장자 | 로드 방식 | 주 활용 모델 |
-|---|---|---|---|
-| `pickle` | `.pkl` | `pickle.load()` | scikit-learn, XGBoost, LightGBM |
-| `onnx` | `.onnx` | `onnxruntime.InferenceSession` | PyTorch, TensorFlow 변환 모델 |
-| `h2o` | `.zip` | `h2o.import_mojo()` | H2O GBM, DRF, XGBoost |
-| `hugging` | 디렉토리 | `transformers.pipeline` | HuggingFace 텍스트 분류 모델 |
+| `model_format` | 파일 형식 | 추론 방식 |
+|---|---|---|
+| `pickle` | `.pkl` | scikit-learn / XGBoost / LightGBM 등 |
+| `onnx` | `.onnx` | ONNX Runtime (`onnxruntime`) |
+| `h2o` | MOJO `.zip` | H2O MOJO (`h2o.import_mojo`) |
+| `hugging` | HuggingFace 모델 | `transformers` AutoModel |
 
 ---
 
@@ -22,135 +42,132 @@
 
 | 키 | 필수 | 타입 | 설명 |
 |----|------|------|------|
-| `model_id` | ✅ | `str` | 모델 식별자 (메타 JSON 기준) |
+| `model_id` | ✅ | `str` | 모델 식별자 (`models/{model_id}_meta.json` 참조) |
 | `input_path` | ✅ | `str` | 입력 데이터 경로 (.parquet) |
 | `output_id` | ✅ | `str` | 결과 저장 식별자 |
-| `model_format` | ❌ | `str` | 모델 포맷 (미지정 시 메타에서 자동 감지) |
+| `model_format` | ❌ | `str` | 포맷 지정 (미지정 시 메타 JSON의 `model_format` 자동 감지) |
 | `score_col` | ❌ | `str` | 예측 점수 컬럼명 (기본: `"score"`) |
 | `output_mode` | ❌ | `str` | `"score"` \| `"embedding"` \| `"both"` (기본: `"score"`) |
-| `batch_size` | ❌ | `int` | 배치 추론 크기 (기본: `10000`, ONNX/HuggingFace) |
+| `batch_size` | ❌ | `int` | 배치 추론 크기 (기본: `10000`, ONNX/HuggingFace 사용 시) |
 
 ---
 
-## 포맷별 추론 메서드
+## 내부 메서드
 
-### `_infer_pickle(meta, X, result_df, score_col, output_mode)`
+### `_load_meta(model_id)` → `dict`
+
+`models/{model_id}_meta.json`을 읽어 반환한다.  
+파일이 없으면 `ExecutorException` 발생.
+
+### `_infer_pickle(meta, X, result_df, score_col, output_mode)` → `pd.DataFrame`
 
 ```python
+model_path = self.file_root / meta["model_path"]
 model = pickle.load(open(model_path, "rb"))
 
-# score 모드: predict_proba 지원 시
-result_df[score_col] = model.predict_proba(X)[:, 1]
+# output_mode in ("score", "both") + predict_proba 지원 시
+result_df[score_col] = model.predict_proba(X)[:, 1].round(6)
 
-# embedding 모드: transform 지원 시 (PCA, Autoencoder 등)
-embedding = model.transform(X)
-# → emb_0, emb_1, ..., emb_N 컬럼으로 추가
+# output_mode in ("embedding", "both") + transform 지원 시
+emb = model.transform(X)   # embedding 추출
 ```
 
----
-
-### `_infer_onnx(meta, X, result_df, score_col, batch_size)`
+### `_infer_onnx(meta, X, result_df, score_col, batch_size)` → `pd.DataFrame`
 
 ```python
-sess = ort.InferenceSession(model_path)
-input_name = sess.get_inputs()[0].name
-
-for batch in chunks(X, batch_size):
-    preds = sess.run(None, {input_name: batch.astype(np.float32)})
-    # 분류: preds[1][:, 1] (확률)
-    # 회귀: preds[0].flatten()
+import onnxruntime as rt
+sess = rt.InferenceSession(meta["model_path"])
+# batch_size 단위로 분할하여 추론
 ```
 
-- 배치 단위 추론으로 메모리 효율 확보
-- float32 강제 변환 필수 (ONNX Runtime 요구)
-
----
-
-### `_infer_h2o(meta, X, result_df, score_col)`
+### `_infer_h2o(meta, X, result_df, score_col)` → `pd.DataFrame`
 
 ```python
-h2o.init()
-model = h2o.import_mojo(meta["model_path"])
+import h2o
+model = h2o.import_mojo(meta["mojo_path"])
 preds = model.predict(h2o.H2OFrame(X)).as_data_frame()
 result_df[score_col] = preds.iloc[:, -1].values
 ```
 
----
+### `_infer_hugging(meta, X, result_df, batch_size)` → `pd.DataFrame`
 
-### `_infer_hugging(meta, X, result_df, batch_size)`
-
-HuggingFace `text-classification` 파이프라인으로 텍스트 분류.
-
-```python
-pipe = pipeline("text-classification", model=model_path)
-for batch in chunks(texts, batch_size):
-    results = pipe(batch, truncation=True)
-    # → pred_label, pred_score 컬럼 추가
-```
-
-메타의 `text_col` 키로 텍스트 컬럼을 지정한다.
+HuggingFace `transformers`를 사용한 배치 추론.  
+텍스트 컬럼을 embedding 벡터로 변환하거나 분류 점수 산출.
 
 ---
 
-## 실행 흐름
+## execute() 진행률
 
-```
-1. models/{model_id}_meta.json 로드                  [progress 15%]
-2. input_path 데이터 로드
-3. feature_cols 정렬 (메타 기준)                     [progress 30%]
-4. 포맷별 추론                                       [progress 85%]
-   - pickle  → _infer_pickle
-   - onnx    → _infer_onnx (배치)
-   - h2o     → _infer_h2o
-   - hugging → _infer_hugging (배치)
-5. predict/{output_id}_pretrained.parquet 저장
-```
+| 단계 | progress |
+|------|----------|
+| 메타 로드 완료 | 15% |
+| 데이터 로드 완료 | 30% |
+| 추론 완료 | 85% |
+| 저장 완료 | 95% |
 
 ---
 
-## 출력 결과
+## 반환값
 
-**저장 경로:** `predict/{output_id}_pretrained.parquet`
-
-추가 컬럼:
-- `score` (또는 `score_col`) — score/both 모드
-- `emb_0`, `emb_1`, ... — embedding/both 모드 (pickle transform)
-- `pred_label`, `pred_score` — HuggingFace 모드
-
-**반환 요약:**
 ```python
 {
-    "output_id":    "deploy_run_001",
-    "model_id":     "champion_gbm",
-    "model_format": "h2o",
-    "output_path":  "predict/deploy_run_001_pretrained.parquet",
-    "total_rows":   200000,
+    "status": "COMPLETED",
+    "result": {
+        "output_id":    "champion_pred_202312",
+        "model_id":     "lgbm_champion_v3",
+        "model_format": "pickle",
+        "output_path":  "predict/champion_pred_202312_pretrained.parquet",
+        "total_rows":   50000,
+    },
+    "message": "Pretrained 추론 완료  50,000건  format=pickle",
+    "job_id":  str,
+    "elapsed_sec": float,
 }
 ```
 
 ---
 
-## 사용 시나리오
+## 출력 파일
 
-### 챔피언/챌린저 A/B 테스트
+| 파일 | 경로 |
+|------|------|
+| 추론 결과 | `predict/{output_id}_pretrained.parquet` |
+
+---
+
+## 챔피언/챌린저 A/B 테스트 패턴
 
 ```python
-# Champion 모델 (기존 운영 모델)
-champion_cfg = {"model_id": "gbm_v3", "output_id": "champion_pred", ...}
+# 챔피언 모델 추론
+config_champion = {
+    "model_id": "lgbm_champion_v3", "input_path": "mart/new_data.parquet",
+    "output_id": "champion_pred", "model_format": "pickle",
+}
 
-# Challenger 모델 (신규 후보)
-challenger_cfg = {"model_id": "lgbm_v5", "output_id": "challenger_pred", ...}
+# 챌린저 모델 추론
+config_challenger = {
+    "model_id": "gbm_challenger_v1", "input_path": "mart/new_data.parquet",
+    "output_id": "challenger_pred", "model_format": "h2o",
+}
 
-# 두 결과 비교 후 성능 우수 모델을 승격
+# 두 결과 비교 후 우수 모델 승격
 ```
 
-### Transfer Learning 피처 추출
+---
+
+## 사용 예시
 
 ```python
 config = {
-    "model_id":    "autoencoder_v1",
-    "output_mode": "embedding",   # transform() 결과를 컬럼으로 추출
+    "job_id":       "pretrained_001",
+    "model_id":     "lgbm_champion_v3",
+    "input_path":   "mart/new_applicants.parquet",
+    "output_id":    "new_score_202312",
     "model_format": "pickle",
+    "score_col":    "ml_score",
+    "output_mode":  "score",
 }
-# → emb_0 ~ emb_N 컬럼을 downstream 모델의 입력 피처로 활용
+
+from executors.ml.pretrained_executor import PretrainedExecutor
+result = PretrainedExecutor(config=config).run()
 ```
